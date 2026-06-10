@@ -1,0 +1,223 @@
+import { z } from "zod";
+import { buildWeekDates } from "@/lib/utils/date";
+
+export const MEAL_SLOTS = ["breakfast", "lunch", "dinner"] as const;
+export const MEAL_OPTION_TYPES = ["fat_loss", "filling", "lazy"] as const;
+
+export const AI_LIMITS = {
+  maxIngredients: 60,
+  maxNameLength: 40,
+  maxQuantityLength: 40,
+  maxListItems: 30,
+  maxListItemLength: 40,
+} as const;
+
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+/** 단일 source of truth: 끼니/알레르기/비선호/조리도구/식단강도는 userProfile 안에만 둔다. */
+const userProfileSchema = z.object({
+  gender: z.enum(["female", "male", "other"]),
+  age: z.number().int().min(1).max(120),
+  heightCm: z.number().min(50).max(260),
+  weightKg: z.number().min(20).max(400),
+  goalWeightKg: z.number().min(20).max(400),
+  activityLevel: z.enum(["sedentary", "light", "moderate", "active"]),
+  dietIntensity: z.enum(["light", "normal", "intensive"]),
+  cardioIntensity: z.enum(["none", "two_days", "three_days", "five_days"]),
+  selectedMealSlots: z.array(z.enum(MEAL_SLOTS)).min(1).max(3),
+  allergies: z
+    .array(z.string().max(AI_LIMITS.maxListItemLength))
+    .max(AI_LIMITS.maxListItems),
+  dislikedFoods: z
+    .array(z.string().max(AI_LIMITS.maxListItemLength))
+    .max(AI_LIMITS.maxListItems),
+  cookingTools: z
+    .array(z.string().max(AI_LIMITS.maxListItemLength))
+    .max(AI_LIMITS.maxListItems),
+});
+
+const nutritionTargetsSchema = z.object({
+  bmr: z.number().nonnegative(),
+  tdee: z.number().nonnegative(),
+  targetCalories: z.number().min(800).max(6000),
+  proteinGoalG: z.number().nonnegative(),
+  waterGoalMl: z.number().nonnegative(),
+  expectedWeeklyLossKgRange: z.object({
+    min: z.number(),
+    max: z.number(),
+  }),
+  cautionNote: z.string().max(300).optional(),
+});
+
+const ingredientInputSchema = z.object({
+  name: z.string().min(1).max(AI_LIMITS.maxNameLength),
+  quantityText: z.string().max(AI_LIMITS.maxQuantityLength).default(""),
+});
+
+export const generateWeeklyPlanRequestSchema = z.object({
+  userProfile: userProfileSchema,
+  nutritionTargets: nutritionTargetsSchema,
+  ingredients: z.array(ingredientInputSchema).min(1).max(AI_LIMITS.maxIngredients),
+  weekStartDate: z.string().regex(YMD),
+});
+
+export type GenerateWeeklyPlanRequest = z.infer<
+  typeof generateWeeklyPlanRequestSchema
+>;
+
+const mealIngredientLineSchema = z.object({
+  name: z.string().min(1).max(60),
+  amount: z.string().max(40).default(""),
+  fromFridge: z.boolean(),
+});
+
+const mealOptionSchema = z.object({
+  type: z.enum(MEAL_OPTION_TYPES),
+  title: z.string().min(1).max(80),
+  ingredients: z.array(mealIngredientLineSchema).max(20),
+  steps: z.array(z.string().max(200)).max(12),
+  estimatedCalories: z.number().int().nonnegative().max(3000),
+  estimatedProteinG: z.number().nonnegative().max(300),
+  prepMinutes: z.number().int().nonnegative().max(240),
+  why: z.string().max(200),
+});
+
+const plannedMealSchema = z.object({
+  mealType: z.enum(MEAL_SLOTS),
+  targetCalories: z.number().int().nonnegative().max(3000),
+  options: z.array(mealOptionSchema).length(3).superRefine((options, ctx) => {
+    for (const type of MEAL_OPTION_TYPES) {
+      if (options.filter((option) => option.type === type).length !== 1) {
+        ctx.addIssue({
+          code: "custom",
+          message: `옵션 type "${type}"은 정확히 한 번만 있어야 합니다.`,
+        });
+      }
+    }
+  }),
+});
+
+export const dailyPlanSchema = z.object({
+  date: z.string().regex(YMD),
+  dayLabel: z.string().max(10),
+  meals: z.array(plannedMealSchema),
+  coachNote: z.string().max(300),
+});
+
+/** 하루치 식단 응답 검증(날짜·선택 끼니 일치). */
+export function buildSingleDayPlanResponseSchema(
+  expectedDate: string,
+  expectedDayLabel: string,
+  selectedSlots: readonly (typeof MEAL_SLOTS)[number][],
+) {
+  const slotSet = new Set(selectedSlots);
+
+  return dailyPlanSchema.superRefine((day, ctx) => {
+    if (day.date !== expectedDate) {
+      ctx.addIssue({
+        code: "custom",
+        message: `date는 ${expectedDate} 이어야 합니다.`,
+      });
+    }
+    if (day.dayLabel !== expectedDayLabel) {
+      ctx.addIssue({
+        code: "custom",
+        message: `dayLabel은 ${expectedDayLabel} 이어야 합니다.`,
+      });
+    }
+
+    const mealTypes = day.meals.map((meal) => meal.mealType);
+
+    for (const mealType of mealTypes) {
+      if (!slotSet.has(mealType)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `선택하지 않은 끼니(${mealType})가 포함됐습니다.`,
+        });
+      }
+    }
+
+    for (const slot of selectedSlots) {
+      if (mealTypes.filter((type) => type === slot).length !== 1) {
+        ctx.addIssue({
+          code: "custom",
+          message: `끼니 ${slot}은 하루에 정확히 한 번 있어야 합니다.`,
+        });
+      }
+    }
+  });
+}
+
+const shoppingSuggestionSchema = z.object({
+  name: z.string().min(1).max(40),
+  reason: z.string().max(160),
+  priority: z.enum(["optional", "recommended"]),
+});
+
+export const weekMetaResponseSchema = z.object({
+  shoppingSuggestions: z.array(shoppingSuggestionSchema).max(10),
+  safetyNote: z.string().max(300),
+});
+
+const unmanagedMealCaloriesSchema = z.object({
+  min: z.number().nonnegative(),
+  max: z.number().nonnegative(),
+  note: z.string().max(200),
+});
+
+/**
+ * weekStartDate와 selectedMealSlots에 맞춰 응답을 엄격히 검증한다.
+ * - dailyPlans 정확히 7개 + weekStartDate부터 연속된 날짜
+ * - 각 날짜의 meals는 선택한 끼니만, 각 끼니 정확히 1번
+ */
+export function buildWeeklyPlanResponseSchema(
+  weekStartDate: string,
+  selectedSlots: readonly (typeof MEAL_SLOTS)[number][],
+) {
+  const expectedDates = buildWeekDates(weekStartDate).map((entry) => entry.date);
+  const slotSet = new Set(selectedSlots);
+
+  return z.object({
+    weekStartDate: z.string().regex(YMD),
+    dailyPlans: z
+      .array(dailyPlanSchema)
+      .length(7)
+      .superRefine((days, ctx) => {
+        days.forEach((day, index) => {
+          if (day.date !== expectedDates[index]) {
+            ctx.addIssue({
+              code: "custom",
+              message: `dailyPlans[${index}].date는 ${expectedDates[index]} 이어야 합니다.`,
+            });
+          }
+
+          const mealTypes = day.meals.map((meal) => meal.mealType);
+
+          for (const mealType of mealTypes) {
+            if (!slotSet.has(mealType)) {
+              ctx.addIssue({
+                code: "custom",
+                message: `선택하지 않은 끼니(${mealType})가 포함됐습니다.`,
+              });
+            }
+          }
+
+          for (const slot of selectedSlots) {
+            if (mealTypes.filter((type) => type === slot).length !== 1) {
+              ctx.addIssue({
+                code: "custom",
+                message: `끼니 ${slot}은 하루에 정확히 한 번 있어야 합니다.`,
+              });
+            }
+          }
+        });
+      }),
+    shoppingSuggestions: z.array(shoppingSuggestionSchema).max(20),
+    unmanagedMealCalories: unmanagedMealCaloriesSchema,
+    safetyNote: z.string().max(300),
+  });
+}
+
+export type WeeklyPlanResponseSchema = ReturnType<
+  typeof buildWeeklyPlanResponseSchema
+>;

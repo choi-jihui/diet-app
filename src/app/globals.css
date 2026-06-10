@@ -1,26 +1,32 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --gakk-mint: #f47c2c;
+  --gakk-lime: #ffb067;
+  --gakk-sage: #e9ded4;
+  --gakk-cream: #f8f4ee;
+  --gakk-coral: #e0623e;
+  --gakk-text: #2b211b;
+  --gakk-text-muted: #7b6e66;
+  --gakk-primary-soft: #fff1e7;
+  --gakk-line: #e9ded4;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-gakk-mint: var(--gakk-mint);
+  --color-gakk-lime: var(--gakk-lime);
+  --color-gakk-sage: var(--gakk-sage);
+  --color-gakk-cream: var(--gakk-cream);
+  --color-gakk-coral: var(--gakk-coral);
+  --color-gakk-text: var(--gakk-text);
+  --color-gakk-text-muted: var(--gakk-text-muted);
+  --color-gakk-primary-soft: var(--gakk-primary-soft);
+  --color-gakk-line: var(--gakk-line);
+  --font-sans: var(--font-noto-sans-kr);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--gakk-cream);
+  color: var(--gakk-text);
+  font-family: var(--font-noto-sans-kr), system-ui, sans-serif;
 }

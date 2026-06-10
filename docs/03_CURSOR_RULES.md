@@ -1,0 +1,77 @@
+# Cursor 프로젝트 규칙 — 복붙용
+
+아래 내용을 `.cursor/rules/fridgefit.mdc` 또는 Cursor Project Rules에 넣는다.
+
+```mdc
+---
+description: FridgeFit MVP product and coding rules
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# FridgeFit MVP Rules
+
+## Product identity
+Build a mobile-first web MVP for FridgeFit: an AI diet execution coach that creates weekly meal plans from fridge ingredients, offers 3 options per meal, recommends instant meals based on what the user wants to eat, creates daily cardio routines, and evaluates water/sleep/cardio/food adherence after one week.
+
+## Tech stack
+- Next.js App Router
+- TypeScript
+- Tailwind CSS
+- Firebase Auth + Firestore
+- Gemini API via server route only
+- Zod for runtime validation
+
+## UX rules
+- Mobile-first layout.
+- Keep screens simple and action-oriented.
+- Never shame the user.
+- Do not use the word "failure" for diet results.
+- Use supportive Korean microcopy by default.
+- Always provide alternatives, not one rigid answer.
+- Use estimated ranges for weight loss and calorie burn.
+- Add safety disclaimers for medical/health-sensitive features.
+
+## Nutrition safety rules
+- Do not present medical diagnosis or treatment.
+- Do not guarantee weight loss.
+- Do not recommend extremely low calorie intake.
+- Do not set target calories below 1200 kcal in MVP.
+- If user chooses intensive mode, show a caution that it is short-term and should be adjusted if fatigue, dizziness, binge eating, or poor sleep occurs.
+- For minors, do not frame the product around weight loss. MVP can simply avoid asking for minors or show guardian/health professional caution.
+
+## Coding rules
+- Use strict TypeScript types.
+- Keep AI prompts in `src/lib/ai/prompts.ts`.
+- Keep schemas in `src/lib/ai/schemas.ts`.
+- Keep calculation functions pure and unit-testable in `src/lib/calculations`.
+- Do not put API keys in client components.
+- API routes must validate request body with Zod.
+- AI responses must be validated before rendering or saving.
+- Avoid large components. Split forms/cards into reusable components.
+- Use loading, error, and empty states for every async screen.
+
+## Firestore rules
+- User data lives under `users/{uid}/...`.
+- Only authenticated owner can read/write own data.
+- Demo mode may use localStorage but must be clearly separated from logged-in persistence.
+
+## AI response rules
+- All AI generation endpoints must return JSON only.
+- Meal plan response must include 7 days.
+- Every meal slot must include 3 options: `fat_loss`, `filling`, `lazy`.
+- Each meal option must include estimated calories, estimated protein, ingredients, short recipe, and swap options.
+- Instant meal endpoint must return 3 options and a next-meal adjustment.
+- Weekly report endpoint must summarize adherence, cardio, water, sleep, wins, struggles, and next-week strategy.
+
+## MVP scope boundaries
+Do not implement these unless explicitly requested:
+- photo recognition
+- barcode scanning
+- payments
+- Apple Health / Google Fit integration
+- social community
+- push notifications
+- native mobile app
+```
