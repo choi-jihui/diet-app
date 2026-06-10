@@ -1,6 +1,7 @@
 import { jsonrepair } from "jsonrepair";
+import { getGeminiModel } from "@/lib/ai/model";
 
-const DEFAULT_MODEL = "gemini-2.0-flash";
+export { getGeminiModel } from "@/lib/ai/model";
 const GENERATE_ENDPOINT =
   "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -20,11 +21,6 @@ export class GeminiError extends Error {
     this.name = "GeminiError";
     this.code = code;
   }
-}
-
-export function getGeminiModel(): string {
-  const fromEnv = process.env.GEMINI_MODEL?.trim();
-  return fromEnv && fromEnv.length > 0 ? fromEnv : DEFAULT_MODEL;
 }
 
 interface GeminiCandidatePart {

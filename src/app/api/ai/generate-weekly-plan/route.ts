@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { generateWeeklyPlanRequestSchema } from "@/lib/ai/schemas";
-import { streamWeeklyMealPlan } from "@/lib/ai/weekly-plan-stream";
+import {
+  streamWeeklyPlanSingleCall,
+  type WeeklyPlanStreamEvent,
+} from "@/lib/ai/stream-weekly-plan";
 import {
   isAdminConfigured,
   releaseWeeklyPlanGeneration,
   reserveWeeklyPlanGeneration,
   verifyIdToken,
 } from "@/lib/firebase/admin";
+import { saveWeeklyMealPlanAdmin } from "@/lib/firebase/meal-plan-admin";
 import { formatYmd } from "@/lib/utils/date";
 import type { MealSlot } from "@/types/user";
 
@@ -23,6 +27,21 @@ function errorResponse(status: number, message: string) {
 
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+async function collectFinalPlan(
+  request: Parameters<typeof streamWeeklyPlanSingleCall>[0],
+  selectedSlots: MealSlot[],
+) {
+  for await (const event of streamWeeklyPlanSingleCall(request, selectedSlots)) {
+    if (event.type === "done") {
+      return event.plan;
+    }
+    if (event.type === "error") {
+      return null;
+    }
+  }
+  return null;
 }
 
 export async function POST(request: Request) {
@@ -91,14 +110,20 @@ export async function POST(request: Request) {
   }
 
   if (!wantsStream) {
-    const { generateWeeklyMealPlan } = await import(
-      "@/lib/ai/weekly-plan-generator"
-    );
-    const plan = await generateWeeklyMealPlan(cleanedRequest, selectedSlots);
+    const plan = await collectFinalPlan(cleanedRequest, selectedSlots);
     if (!plan) {
       await releaseWeeklyPlanGeneration(uid, dateKey);
       return errorResponse(502, GENERIC_ERROR);
     }
+
+    try {
+      await saveWeeklyMealPlanAdmin(uid, plan);
+    } catch (caught) {
+      console.error("[generate-weekly-plan] save_failed", caught);
+      await releaseWeeklyPlanGeneration(uid, dateKey);
+      return errorResponse(500, GENERIC_ERROR);
+    }
+
     return NextResponse.json({ plan });
   }
 
@@ -107,24 +132,49 @@ export async function POST(request: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (event: unknown) => {
+      const send = (event: WeeklyPlanStreamEvent) => {
         controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
       };
 
       try {
-        for await (const event of streamWeeklyMealPlan(
+        for await (const event of streamWeeklyPlanSingleCall(
           cleanedRequest,
           selectedSlots,
         )) {
+          if (event.type === "done") {
+            try {
+              await saveWeeklyMealPlanAdmin(uid, event.plan);
+              send(event);
+            } catch (caught) {
+              failed = true;
+              console.error("[generate-weekly-plan] save_failed", caught);
+              send({
+                type: "error",
+                code: "SAVE_FAILED",
+                message: GENERIC_ERROR,
+              });
+            }
+            break;
+          }
+
           send(event);
+
           if (event.type === "error") {
             failed = true;
             break;
           }
         }
-      } catch {
+      } catch (caught) {
         failed = true;
-        send({ type: "error", message: GENERIC_ERROR });
+        console.error(
+          "[generate-weekly-plan] stream_unhandled",
+          caught instanceof Error ? caught.message : "unknown",
+        );
+        send({
+          type: "error",
+          code: "UPSTREAM_ERROR",
+          message: GENERIC_ERROR,
+        });
       }
 
       if (failed) {

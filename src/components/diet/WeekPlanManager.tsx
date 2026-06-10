@@ -29,12 +29,22 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
   const weekDates = useMemo(() => buildWeekDates(weekStartDate), [weekStartDate]);
 
   const ingredients = useIngredients(user?.uid);
-  const { plan, status, error, generatingProgress, generate, reload } =
-    useWeeklyPlan(user?.uid, weekStartDate);
+  const {
+    plan,
+    draftPlan,
+    status,
+    error,
+    generatingProgress,
+    generate,
+    reload,
+  } = useWeeklyPlan(user?.uid, weekStartDate);
 
   const [selectedDay, setSelectedDay] = useState(0);
+  const [userPickedDay, setUserPickedDay] = useState(false);
 
   const isGenerating = status === "generating";
+  const displayPlan =
+    isGenerating && draftPlan ? draftPlan : plan;
 
   const ingredientCount = ingredients.items.length;
   const isBusyLoading =
@@ -44,17 +54,17 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
     if (!profileData) {
       return;
     }
-    generate(
-      {
-        userProfile: profileData.profile,
-        nutritionTargets: profileData.targets,
-        ingredients: ingredients.items.map((item) => ({
-          name: item.name,
-          quantityText: item.quantityText,
-        })),
-      },
-      { onDayComplete: setSelectedDay },
-    );
+    if (!userPickedDay) {
+      setSelectedDay(0);
+    }
+    generate({
+      userProfile: profileData.profile,
+      nutritionTargets: profileData.targets,
+      ingredients: ingredients.items.map((item) => ({
+        name: item.name,
+        quantityText: item.quantityText,
+      })),
+    });
   };
 
   const handleRegenerate = () => {
@@ -91,7 +101,7 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
     );
   }
 
-  if (!plan) {
+  if (!displayPlan) {
     return (
       <div className="rounded-2xl border border-gakk-line bg-white p-6 text-center">
         <p className="text-sm font-medium text-gakk-text">
@@ -125,7 +135,7 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
     );
   }
 
-  const currentDay = plan.dailyPlans[selectedDay];
+  const currentDay = displayPlan.dailyPlans[selectedDay];
   const progress = generatingProgress;
 
   return (
@@ -151,7 +161,7 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
       <div className="flex gap-2 overflow-x-auto pb-1">
         {weekDates.map((entry, index) => {
           const isActive = index === selectedDay;
-          const isReady = Boolean(plan.dailyPlans[index]);
+          const isReady = Boolean(displayPlan.dailyPlans[index]);
           const isPending =
             isGenerating &&
             !isReady &&
@@ -162,7 +172,12 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
               key={entry.date}
               type="button"
               disabled={!isReady && !isPending}
-              onClick={() => isReady && setSelectedDay(index)}
+              onClick={() => {
+                if (isReady) {
+                  setSelectedDay(index);
+                  setUserPickedDay(true);
+                }
+              }}
               className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
                 isActive && isReady
                   ? "bg-gakk-mint text-white"
@@ -216,13 +231,13 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
         </div>
       )}
 
-      {!isGenerating && plan.shoppingSuggestions.length > 0 ? (
+      {!isGenerating && displayPlan.shoppingSuggestions.length > 0 ? (
         <section className="rounded-2xl border border-gakk-line bg-white px-4 py-3">
           <h2 className="text-sm font-semibold text-gakk-text">
             추가로 있으면 좋은 재료
           </h2>
           <ul className="mt-2 divide-y divide-gakk-line">
-            {plan.shoppingSuggestions.map((item, index) => (
+            {displayPlan.shoppingSuggestions.map((item, index) => (
               <li key={index} className="flex items-start gap-2 py-2">
                 <span
                   className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -243,13 +258,14 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
         </section>
       ) : null}
 
-      {plan.safetyNote ? (
+      {displayPlan.safetyNote ? (
         <div className="rounded-2xl bg-gakk-cream px-4 py-3">
           <p className="text-xs text-gakk-text-muted">
-            비관리 끼니 여유: 약 {plan.unmanagedMealCalories.min}~
-            {plan.unmanagedMealCalories.max}kcal · {plan.unmanagedMealCalories.note}
+            비관리 끼니 여유: 약 {displayPlan.unmanagedMealCalories.min}~
+            {displayPlan.unmanagedMealCalories.max}kcal ·{" "}
+            {displayPlan.unmanagedMealCalories.note}
           </p>
-          <p className="mt-1 text-xs text-gakk-text-muted">{plan.safetyNote}</p>
+          <p className="mt-1 text-xs text-gakk-text-muted">{displayPlan.safetyNote}</p>
           <p className="mt-1 text-xs text-gakk-text-muted">
             칼로리와 단백질은 추정치예요.
           </p>

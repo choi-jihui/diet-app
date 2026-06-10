@@ -176,6 +176,9 @@ export function buildWeeklyPlanUserPrompt({
 - 각 option은 title, ingredients(name, amount, fromFridge), steps, estimatedCalories, estimatedProteinG, prepMinutes, why 포함.
 - 냉장고에 있는 재료는 fromFridge=true.
 - estimatedCalories는 해당 끼니 예산 근처의 현실적인 값.
+- ingredients는 옵션당 최대 5개, steps는 최대 3줄(짧게), why는 한 문장.
+- JSON 문자열 값 안에 큰따옴표(")나 줄바꿈을 넣지 말 것. 간단한 한국어 문장만.
+- shoppingSuggestions는 최대 8개. 비싼 특수 식재료 남발 금지.
 
 JSON 스키마(이 구조와 키를 정확히 따를 것):
 {

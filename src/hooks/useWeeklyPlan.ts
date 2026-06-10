@@ -2,11 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getFirebaseAuth } from "@/lib/firebase/client";
-import {
-  getWeeklyMealPlan,
-  saveWeeklyMealPlan,
-} from "@/lib/firebase/meal-plan-repo";
-import type { WeeklyPlanStreamEvent } from "@/lib/ai/weekly-plan-stream";
+import { getWeeklyMealPlan } from "@/lib/firebase/meal-plan-repo";
+import type { WeeklyPlanStreamEvent } from "@/lib/ai/stream-weekly-plan";
 import type { WeeklyMealPlan } from "@/types/meal";
 import type { NutritionTargets } from "@/types/nutrition";
 import type { UserProfile } from "@/types/user";
@@ -30,17 +27,22 @@ export interface GenerateArgs {
   ingredients: { name: string; quantityText: string }[];
 }
 
-export interface GenerateOptions {
-  onDayComplete?: (dayIndex: number) => void;
-}
-
 const GENERIC_ERROR =
   "식단을 만드는 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.";
 const TIMEOUT_ERROR =
   "시간이 조금 더 걸리고 있어요. 잠시 후 다시 시도해 주세요.";
 
+const DAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"] as const;
+
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : GENERIC_ERROR;
+}
+
+function labelForCompletedDays(count: number): string {
+  if (count >= DAY_LABELS.length) {
+    return "장보기";
+  }
+  return DAY_LABELS[count] ?? "월";
 }
 
 async function readStreamEvents(
@@ -69,23 +71,35 @@ async function readStreamEvents(
       if (!line.trim()) {
         continue;
       }
-      onEvent(JSON.parse(line) as WeeklyPlanStreamEvent);
+      try {
+        onEvent(JSON.parse(line) as WeeklyPlanStreamEvent);
+      } catch {
+        throw new Error(GENERIC_ERROR);
+      }
     }
   }
 
+  buffer += decoder.decode();
+
   if (buffer.trim()) {
-    onEvent(JSON.parse(buffer) as WeeklyPlanStreamEvent);
+    try {
+      onEvent(JSON.parse(buffer) as WeeklyPlanStreamEvent);
+    } catch {
+      throw new Error(GENERIC_ERROR);
+    }
   }
 }
 
 export function useWeeklyPlan(uid: string | undefined, weekStartDate: string) {
   const [plan, setPlan] = useState<WeeklyMealPlan | null>(null);
+  const [draftPlan, setDraftPlan] = useState<WeeklyMealPlan | null>(null);
   const [status, setStatus] = useState<WeeklyPlanStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [generatingProgress, setGeneratingProgress] =
     useState<GeneratingProgress | null>(null);
   const generatingRef = useRef(false);
   const planRef = useRef<WeeklyMealPlan | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const setPlanState = useCallback((next: WeeklyMealPlan | null) => {
     planRef.current = next;
@@ -100,6 +114,7 @@ export function useWeeklyPlan(uid: string | undefined, weekStartDate: string) {
     setStatus("loading");
     setError(null);
     setGeneratingProgress(null);
+    setDraftPlan(null);
 
     try {
       const existing = await getWeeklyMealPlan(uid, weekStartDate);
@@ -149,17 +164,30 @@ export function useWeeklyPlan(uid: string | undefined, weekStartDate: string) {
     };
   }, [uid, weekStartDate, setPlanState]);
 
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
   const generate = useCallback(
-    async (args: GenerateArgs, options?: GenerateOptions) => {
+    async (args: GenerateArgs) => {
       if (!uid || generatingRef.current) {
         return;
       }
 
       generatingRef.current = true;
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const hadExistingPlan = Boolean(planRef.current);
       setStatus("generating");
       setError(null);
-      setPlanState(null);
+      setDraftPlan(null);
       setGeneratingProgress({ completed: 0, total: 7, currentLabel: "월" });
+
+      const timeoutId = window.setTimeout(() => controller.abort(), 240_000);
 
       try {
         const token = await getFirebaseAuth().currentUser?.getIdToken();
@@ -180,21 +208,30 @@ export function useWeeklyPlan(uid: string | undefined, weekStartDate: string) {
             ingredients: args.ingredients,
             weekStartDate,
           }),
-          signal: AbortSignal.timeout(240_000),
+          signal: controller.signal,
         });
 
+        const contentType = response.headers.get("content-type") ?? "";
+
         if (!response.ok) {
-          const data = (await response.json().catch(() => null)) as
-            | { error?: string }
-            | null;
-          throw new Error(data?.error ?? GENERIC_ERROR);
+          if (contentType.includes("application/json")) {
+            const data = (await response.json().catch(() => null)) as
+              | { error?: string }
+              | null;
+            throw new Error(data?.error ?? GENERIC_ERROR);
+          }
+          throw new Error(GENERIC_ERROR);
+        }
+
+        if (!contentType.includes("application/x-ndjson")) {
+          throw new Error(GENERIC_ERROR);
         }
 
         let finalPlan: WeeklyMealPlan | null = null;
 
         await readStreamEvents(response, (event) => {
           if (event.type === "start") {
-            setPlanState({
+            setDraftPlan({
               weekStartDate: event.weekStartDate,
               dailyPlans: [],
               shoppingSuggestions: [],
@@ -209,47 +246,12 @@ export function useWeeklyPlan(uid: string | undefined, weekStartDate: string) {
             return;
           }
 
-          if (event.type === "progress") {
+          if (event.type === "partial") {
+            setDraftPlan(event.plan);
             setGeneratingProgress({
-              completed: Math.min(event.dayIndex, event.totalDays),
+              completed: event.completedDays,
               total: event.totalDays,
-              currentLabel: event.dayLabel,
-            });
-            return;
-          }
-
-          if (event.type === "day") {
-            setPlan((prev) => {
-              if (!prev) {
-                return prev;
-              }
-              const dailyPlans = [...prev.dailyPlans];
-              dailyPlans[event.dayIndex] = event.dailyPlan;
-              const next = { ...prev, dailyPlans };
-              planRef.current = next;
-              return next;
-            });
-            setGeneratingProgress({
-              completed: event.dayIndex + 1,
-              total: 7,
-              currentLabel: event.dailyPlan.dayLabel,
-            });
-            options?.onDayComplete?.(event.dayIndex);
-            return;
-          }
-
-          if (event.type === "meta") {
-            setPlan((prev) => {
-              if (!prev) {
-                return prev;
-              }
-              const next = {
-                ...prev,
-                shoppingSuggestions: event.shoppingSuggestions,
-                safetyNote: event.safetyNote,
-              };
-              planRef.current = next;
-              return next;
+              currentLabel: labelForCompletedDays(event.completedDays),
             });
             return;
           }
@@ -257,6 +259,7 @@ export function useWeeklyPlan(uid: string | undefined, weekStartDate: string) {
           if (event.type === "done") {
             finalPlan = event.plan;
             setPlanState(event.plan);
+            setDraftPlan(null);
             return;
           }
 
@@ -269,21 +272,31 @@ export function useWeeklyPlan(uid: string | undefined, weekStartDate: string) {
           throw new Error(GENERIC_ERROR);
         }
 
-        await saveWeeklyMealPlan(uid, finalPlan);
         setStatus("ready");
         setGeneratingProgress(null);
       } catch (caught) {
         const isTimeout =
-          caught instanceof DOMException && caught.name === "TimeoutError";
+          caught instanceof DOMException &&
+          (caught.name === "TimeoutError" || caught.name === "AbortError");
         setError(isTimeout ? TIMEOUT_ERROR : messageOf(caught));
-        setStatus(planRef.current?.dailyPlans.length ? "ready" : "error");
+        setDraftPlan(null);
+        setStatus(hadExistingPlan ? "ready" : "error");
         setGeneratingProgress(null);
       } finally {
+        window.clearTimeout(timeoutId);
         generatingRef.current = false;
       }
     },
     [uid, weekStartDate, setPlanState],
   );
 
-  return { plan, status, error, generatingProgress, generate, reload };
+  return {
+    plan,
+    draftPlan,
+    status,
+    error,
+    generatingProgress,
+    generate,
+    reload,
+  };
 }
