@@ -10,16 +10,10 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if isOwner(userId);
 
-      match /mealPlans/{weekStartDate} {
-        allow read, write: if isOwner(userId);
-      }
-
-      match /ingredients/{ingredientId} {
-        allow read, write: if isOwner(userId);
-      }
-
-      match /aiUsage/{dateKey} {
-        allow read, write: if false;
+      // aiUsage는 서버(Admin SDK)만 쓴다. 그 외 하위 컬렉션은 소유자가 접근 가능.
+      match /{collection}/{documentId} {
+        allow read, write: if isOwner(userId)
+          && collection != 'aiUsage';
       }
     }
   }
