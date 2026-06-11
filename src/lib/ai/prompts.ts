@@ -170,6 +170,7 @@ export function buildWeeklySkeletonPrompt({
 - title은 50자 이하, 짧고 실용적
 - options는 fat_loss/filling/lazy 각각 1개
 - ingredients/steps/why/coachNote/shoppingSuggestions/safetyNote는 절대 포함 금지
+- ${request.fridgeOnly ? "냉장고 전용 모드: 이후 상세 단계에서 냉장고 재료만 허용됨" : "냉장고 외 재료는 최소화"}
 - JSON 외 텍스트 금지
 
 반환 필드:
@@ -218,6 +219,7 @@ export function buildDayDetailFromSkeletonPrompt(params: {
 - coachNote는 최대 80자
 - 짧고 실용적인 한국어, 수식어 과다 금지
 - JSON 외 텍스트 금지
+- ${request.fridgeOnly ? "모든 ingredients는 fromFridge=true만 허용. 냉장고 밖 재료 절대 금지." : "냉장고 밖 재료는 필요한 경우에만 최소한으로 사용."}
 
 골격(JSON):
 ${JSON.stringify(skeletonDay)}

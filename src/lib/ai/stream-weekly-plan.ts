@@ -166,6 +166,7 @@ function buildDayRepairPrompt(input: {
   skeletonDay: DailySkeleton;
   issues: string;
   previous: string;
+  fridgeOnly: boolean;
 }): string {
   return `이전 일일 상세 응답이 스키마를 충족하지 못했습니다.
 
@@ -183,6 +184,7 @@ ${JSON.stringify(input.skeletonDay)}
 - steps 정확히 1~2개
 - why 최대 50자
 - coachNote 최대 80자
+- ${input.fridgeOnly ? "모든 ingredients는 fromFridge=true만 허용" : "냉장고 밖 재료는 필요할 때만 최소화"}
 - JSON 외 텍스트 금지
 
 JSON만 반환하세요.`;
@@ -190,7 +192,12 @@ JSON만 반환하세요.`;
 
 function buildShoppingSuggestionsFromPlans(
   dailyPlans: WeeklyMealPlan["dailyPlans"],
+  fridgeOnly: boolean,
 ): WeeklyMealPlan["shoppingSuggestions"] {
+  if (fridgeOnly) {
+    return [];
+  }
+
   const countByKey = new Map<string, { name: string; count: number }>();
 
   for (const day of dailyPlans) {
@@ -345,6 +352,7 @@ async function generateDayDetailWithRetry(input: {
   const schema = buildDetailedDayFromSkeletonResponseSchema(
     input.skeletonDay,
     input.selectedSlots,
+    { fridgeOnly: input.request.fridgeOnly },
   );
   const responseSchema = z.toJSONSchema(schema);
   for (const model of input.models) {
@@ -363,6 +371,7 @@ async function generateDayDetailWithRetry(input: {
               skeletonDay: input.skeletonDay,
               issues: repairIssues,
               previous: repairPrevious.slice(0, 400),
+              fridgeOnly: input.request.fridgeOnly,
             });
 
       try {
@@ -611,7 +620,10 @@ export async function* streamWeeklyPlanSingleCall(
   }
 
   const finalizedDays = completedByIndex as WeeklyMealPlan["dailyPlans"];
-  const shoppingSuggestions = buildShoppingSuggestionsFromPlans(finalizedDays);
+  const shoppingSuggestions = buildShoppingSuggestionsFromPlans(
+    finalizedDays,
+    request.fridgeOnly,
+  );
 
   yield {
     type: "progress",
@@ -638,6 +650,7 @@ export async function* streamWeeklyPlanSingleCall(
   const responseSchema = buildWeeklyPlanResponseSchema(
     request.weekStartDate,
     selectedSlots,
+    { fridgeOnly: request.fridgeOnly },
   );
   const validatedFinal = responseSchema.safeParse(finalPlan);
   if (!validatedFinal.success) {

@@ -70,6 +70,7 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
   const [selectedDay, setSelectedDay] = useState(0);
   const [userPickedDay, setUserPickedDay] = useState(false);
   const [cheerIndex, setCheerIndex] = useState(0);
+  const [fridgeOnly, setFridgeOnly] = useState(false);
 
   const isGenerating = status === "generating";
   const displayPlan =
@@ -105,6 +106,7 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
         name: item.name,
         quantityText: item.quantityText,
       })),
+      fridgeOnly,
     });
   };
 
@@ -162,14 +164,25 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
             </button>
           </>
         ) : (
-          <button
-            type="button"
-            onClick={handleGenerate}
-            disabled={!profileData}
-            className="mt-3 rounded-2xl bg-gakk-mint px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            이번 주 식단 만들기
-          </button>
+          <>
+            <label className="mt-3 flex items-center justify-center gap-2 text-xs text-gakk-text-muted">
+              <input
+                type="checkbox"
+                checked={fridgeOnly}
+                onChange={(event) => setFridgeOnly(event.target.checked)}
+                className="h-4 w-4 rounded border-gakk-line text-gakk-mint focus:ring-gakk-mint"
+              />
+              냉장고 재료로만 식단 만들기(없는 재료 추천 제외)
+            </label>
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={!profileData}
+              className="mt-3 rounded-2xl bg-gakk-mint px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              이번 주 식단 만들기
+            </button>
+          </>
         )}
         {error ? <p className="mt-3 text-sm text-gakk-coral">{error}</p> : null}
       </div>
@@ -350,13 +363,24 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
       {error ? <p className="px-1 text-sm text-gakk-coral">{error}</p> : null}
 
       {!isGenerating ? (
-        <button
-          type="button"
-          onClick={handleRegenerate}
-          className="w-full rounded-2xl border border-gakk-line py-2.5 text-sm font-semibold text-gakk-text-muted"
-        >
-          이번 주 식단 다시 만들기
-        </button>
+        <>
+          <label className="flex items-center gap-2 px-1 text-xs text-gakk-text-muted">
+            <input
+              type="checkbox"
+              checked={fridgeOnly}
+              onChange={(event) => setFridgeOnly(event.target.checked)}
+              className="h-4 w-4 rounded border-gakk-line text-gakk-mint focus:ring-gakk-mint"
+            />
+            냉장고 재료로만 식단 만들기(없는 재료 추천 제외)
+          </label>
+          <button
+            type="button"
+            onClick={handleRegenerate}
+            className="w-full rounded-2xl border border-gakk-line py-2.5 text-sm font-semibold text-gakk-text-muted"
+          >
+            이번 주 식단 다시 만들기
+          </button>
+        </>
       ) : null}
     </div>
   );

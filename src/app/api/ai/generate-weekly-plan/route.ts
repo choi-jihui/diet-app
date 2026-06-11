@@ -132,8 +132,19 @@ export async function POST(request: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (event: WeeklyPlanStreamEvent) => {
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      let streamClosed = false;
+
+      const send = (event: WeeklyPlanStreamEvent): boolean => {
+        if (streamClosed) {
+          return false;
+        }
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          return true;
+        } catch {
+          streamClosed = true;
+          return false;
+        }
       };
 
       try {
@@ -144,7 +155,9 @@ export async function POST(request: Request) {
           if (event.type === "done") {
             try {
               await saveWeeklyMealPlanAdmin(uid, event.plan);
-              send(event);
+              if (!send(event)) {
+                break;
+              }
             } catch (caught) {
               failed = true;
               console.error("[generate-weekly-plan] save_failed", caught);
@@ -157,7 +170,9 @@ export async function POST(request: Request) {
             break;
           }
 
-          send(event);
+          if (!send(event)) {
+            break;
+          }
 
           if (event.type === "error") {
             failed = true;
@@ -181,7 +196,13 @@ export async function POST(request: Request) {
         await releaseWeeklyPlanGeneration(uid, dateKey);
       }
 
-      controller.close();
+      if (!streamClosed) {
+        try {
+          controller.close();
+        } catch {
+          // no-op
+        }
+      }
     },
   });
 

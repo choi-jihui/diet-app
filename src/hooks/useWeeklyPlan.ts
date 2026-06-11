@@ -32,6 +32,7 @@ export interface GenerateArgs {
   userProfile: UserProfile;
   nutritionTargets: NutritionTargets;
   ingredients: { name: string; quantityText: string }[];
+  fridgeOnly: boolean;
 }
 
 export interface GenerateOptions {
@@ -265,6 +266,7 @@ export function useWeeklyPlan(uid: string | undefined, weekStartDate: string) {
       const weeklySchema = buildWeeklyPlanResponseSchema(
         weekStartDate,
         selectedSlots,
+        { fridgeOnly: args.fridgeOnly },
       );
 
       setStatus("generating");
@@ -292,6 +294,7 @@ export function useWeeklyPlan(uid: string | undefined, weekStartDate: string) {
             nutritionTargets: args.nutritionTargets,
             ingredients: args.ingredients,
             weekStartDate,
+            fridgeOnly: args.fridgeOnly,
           }),
           signal: controller.signal,
         });
