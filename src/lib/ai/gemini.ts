@@ -47,6 +47,48 @@ interface GeminiResponse {
   }[];
 }
 
+function sanitizeGeminiSchema(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeGeminiSchema(item));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const objectValue = value as Record<string, unknown>;
+  const sanitized: Record<string, unknown> = {};
+
+  for (const [key, raw] of Object.entries(objectValue)) {
+    // Gemini Schema에서 자주 거부되는 draft 키워드는 제거한다.
+    if (
+      key.startsWith("$") ||
+      key === "additionalProperties" ||
+      key === "unevaluatedProperties" ||
+      key === "default" ||
+      key === "examples" ||
+      key === "example" ||
+      key === "title"
+    ) {
+      continue;
+    }
+
+    if (key === "properties" && raw && typeof raw === "object" && !Array.isArray(raw)) {
+      const properties: Record<string, unknown> = {};
+      for (const [propKey, propSchema] of Object.entries(
+        raw as Record<string, unknown>,
+      )) {
+        properties[propKey] = sanitizeGeminiSchema(propSchema);
+      }
+      sanitized[key] = properties;
+      continue;
+    }
+
+    sanitized[key] = sanitizeGeminiSchema(raw);
+  }
+
+  return sanitized;
+}
+
 function parseModelJson(text: string): unknown {
   let body = text.trim();
 
@@ -117,7 +159,9 @@ export async function generateJsonContentWithMeta(
       maxOutputTokens: params.maxOutputTokens ?? 8192,
     };
     if (params.responseSchema) {
-      generationConfig.responseSchema = params.responseSchema;
+      generationConfig.responseSchema = sanitizeGeminiSchema(
+        params.responseSchema,
+      );
     }
 
     response = await fetch(url, {
