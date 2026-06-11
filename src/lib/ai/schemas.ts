@@ -59,7 +59,7 @@ export const generateWeeklyPlanRequestSchema = z.object({
   nutritionTargets: nutritionTargetsSchema,
   ingredients: z.array(ingredientInputSchema).min(1).max(AI_LIMITS.maxIngredients),
   weekStartDate: z.string().regex(YMD),
-  fridgeOnly: z.boolean().default(false),
+  fridgeOnly: z.boolean().default(true),
 });
 
 export type GenerateWeeklyPlanRequest = z.infer<
@@ -247,15 +247,14 @@ export function buildWeeklySkeletonResponseSchema(
 export function buildDetailedDayFromSkeletonResponseSchema(
   skeletonDay: DailySkeleton,
   selectedSlots: readonly (typeof MEAL_SLOTS)[number][],
-  options?: { fridgeOnly?: boolean },
+  _options?: { fridgeOnly?: boolean },
 ) {
+  void _options;
   const base = buildSingleDayPlanResponseSchema(
     skeletonDay.date,
     skeletonDay.dayLabel,
     selectedSlots,
   );
-  const fridgeOnly = options?.fridgeOnly ?? false;
-
   return base.superRefine((day, ctx) => {
     for (const skeletonMeal of skeletonDay.meals) {
       const actualMeal = day.meals.find(
@@ -306,17 +305,6 @@ export function buildDetailedDayFromSkeletonResponseSchema(
           });
         }
 
-        if (fridgeOnly) {
-          const hasNonFridge = actualOption.ingredients.some(
-            (ingredient) => !ingredient.fromFridge,
-          );
-          if (hasNonFridge) {
-            ctx.addIssue({
-              code: "custom",
-              message: `냉장고 전용 모드에서는 옵션 ${skeletonOption.type} 재료가 모두 fromFridge=true 여야 합니다.`,
-            });
-          }
-        }
       }
     }
   });
@@ -422,11 +410,11 @@ export function parseWeeklyPlanStreamEvent(raw: unknown): ParsedWeeklyPlanStream
 export function buildWeeklyPlanResponseSchema(
   weekStartDate: string,
   selectedSlots: readonly (typeof MEAL_SLOTS)[number][],
-  options?: { fridgeOnly?: boolean },
+  _options?: { fridgeOnly?: boolean },
 ) {
+  void _options;
   const expectedDates = buildWeekDates(weekStartDate).map((entry) => entry.date);
   const slotSet = new Set(selectedSlots);
-  const fridgeOnly = options?.fridgeOnly ?? false;
 
   return z.object({
     weekStartDate: z.string().regex(YMD),
@@ -462,21 +450,6 @@ export function buildWeeklyPlanResponseSchema(
             }
           }
 
-          if (fridgeOnly) {
-            for (const meal of day.meals) {
-              for (const option of meal.options) {
-                const hasNonFridge = option.ingredients.some(
-                  (ingredient) => !ingredient.fromFridge,
-                );
-                if (hasNonFridge) {
-                  ctx.addIssue({
-                    code: "custom",
-                    message: `냉장고 전용 모드에서는 ${day.date}/${meal.mealType}/${option.type} 재료가 모두 fromFridge=true 여야 합니다.`,
-                  });
-                }
-              }
-            }
-          }
         });
       }),
     shoppingSuggestions: z.array(shoppingSuggestionSchema).max(20),

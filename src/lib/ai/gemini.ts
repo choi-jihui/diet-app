@@ -127,6 +127,8 @@ export interface GenerateJsonContentParams {
   model?: string;
   maxOutputTokens?: number;
   timeoutMs?: number;
+  responseJsonSchema?: Record<string, unknown>;
+  // Backward compatibility for older call sites.
   responseSchema?: unknown;
   signal?: AbortSignal;
 }
@@ -158,10 +160,10 @@ export async function generateJsonContentWithMeta(
       temperature: 0.1,
       maxOutputTokens: params.maxOutputTokens ?? 8192,
     };
-    if (params.responseSchema) {
-      generationConfig.responseSchema = sanitizeGeminiSchema(
-        params.responseSchema,
-      );
+    const schemaInput =
+      params.responseJsonSchema ?? (params.responseSchema as Record<string, unknown> | undefined);
+    if (schemaInput) {
+      generationConfig.responseJsonSchema = sanitizeGeminiSchema(schemaInput);
     }
 
     response = await fetch(url, {

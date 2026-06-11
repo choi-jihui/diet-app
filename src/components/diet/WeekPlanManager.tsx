@@ -70,7 +70,7 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
   const [selectedDay, setSelectedDay] = useState(0);
   const [userPickedDay, setUserPickedDay] = useState(false);
   const [cheerIndex, setCheerIndex] = useState(0);
-  const [fridgeOnly, setFridgeOnly] = useState(false);
+  const [fridgeOnly, setFridgeOnly] = useState(true);
 
   const isGenerating = status === "generating";
   const displayPlan =
@@ -170,9 +170,10 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
                 type="checkbox"
                 checked={fridgeOnly}
                 onChange={(event) => setFridgeOnly(event.target.checked)}
+                disabled
                 className="h-4 w-4 rounded border-gakk-line text-gakk-mint focus:ring-gakk-mint"
               />
-              냉장고 재료로만 식단 만들기(없는 재료 추천 제외)
+              냉장고 재료로만 식단 만들기(기본 조리요소 외 신규 재료 제외)
             </label>
             <button
               type="button"
@@ -369,9 +370,10 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
               type="checkbox"
               checked={fridgeOnly}
               onChange={(event) => setFridgeOnly(event.target.checked)}
+              disabled
               className="h-4 w-4 rounded border-gakk-line text-gakk-mint focus:ring-gakk-mint"
             />
-            냉장고 재료로만 식단 만들기(없는 재료 추천 제외)
+            냉장고 재료로만 식단 만들기(기본 조리요소 외 신규 재료 제외)
           </label>
           <button
             type="button"

@@ -44,7 +44,7 @@ const GENERIC_ERROR =
 const TIMEOUT_ERROR =
   "시간이 조금 더 걸리고 있어요. 잠시 후 다시 시도해 주세요.";
 const PARSE_ERROR =
-  "식단을 만드는 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.";
+  "식단 데이터를 받는 중 연결이 끊어졌어요. 다시 시도해 주세요.";
 
 const DAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"] as const;
 
@@ -146,7 +146,13 @@ async function readStreamEvents(
       } catch {
         throw new Error(PARSE_ERROR);
       }
-      onEvent(parseWeeklyPlanStreamEvent(raw));
+      let parsedEvent: ParsedWeeklyPlanStreamEvent;
+      try {
+        parsedEvent = parseWeeklyPlanStreamEvent(raw);
+      } catch {
+        throw new Error(PARSE_ERROR);
+      }
+      onEvent(parsedEvent);
     }
   }
 
@@ -159,7 +165,13 @@ async function readStreamEvents(
     } catch {
       throw new Error(PARSE_ERROR);
     }
-    onEvent(parseWeeklyPlanStreamEvent(raw));
+    let parsedEvent: ParsedWeeklyPlanStreamEvent;
+    try {
+      parsedEvent = parseWeeklyPlanStreamEvent(raw);
+    } catch {
+      throw new Error(PARSE_ERROR);
+    }
+    onEvent(parsedEvent);
   }
 }
 
@@ -274,7 +286,7 @@ export function useWeeklyPlan(uid: string | undefined, weekStartDate: string) {
       setDraftState(null);
       setGeneratingProgress({ completed: 0, total: 7, currentLabel: "월" });
 
-      const timeoutId = window.setTimeout(() => controller.abort(), 240_000);
+      const timeoutId = window.setTimeout(() => controller.abort(), 290_000);
 
       try {
         const token = await getFirebaseAuth().currentUser?.getIdToken();

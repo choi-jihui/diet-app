@@ -2,6 +2,7 @@ import {
   MEAL_SLOT_LABELS_KO,
   type SlotBudget,
 } from "@/lib/ai/calorie-allocation";
+import { DEFAULT_PANTRY_STAPLES } from "@/lib/ai/fridge-only";
 import type { DailySkeleton, GenerateWeeklyPlanRequest } from "@/lib/ai/schemas";
 import type { WeekDate } from "@/lib/utils/date";
 import type { UnmanagedMealCalories } from "@/types/meal";
@@ -10,7 +11,7 @@ export const WEEKLY_PLAN_SYSTEM_PROMPT = `You are GAKK, a supportive Korean AI d
 Rules:
 - Reply in Korean.
 - Return valid JSON only. No markdown, no commentary.
-- Use fridge ingredients first; only suggest minimal shopping when needed.
+- In fridge-only mode, use only allowed fridge ingredients and basic pantry staples.
 - Never recommend allergic ingredients. Exclude disliked foods.
 - Stay within the user's available cooking tools.
 - Do not add many expensive special ingredients.
@@ -43,6 +44,7 @@ export function buildSingleDayPlanPrompt({
   dayIndex,
 }: SingleDayPromptParams): string {
   const { userProfile, nutritionTargets, ingredients } = request;
+  const pantryList = DEFAULT_PANTRY_STAPLES.join(", ");
 
   const ingredientList = ingredients
     .map((item) =>
@@ -76,7 +78,11 @@ export function buildSingleDayPlanPrompt({
 - 각 meal.options는 fat_loss, filling, lazy 각 1개
 - ingredients는 옵션당 최대 4개, steps는 1~2줄(짧게), why는 한 문장(최대 50자)
 - JSON 문자열 값 안에 큰따옴표(")나 줄바꿈을 넣지 말 것. 간단한 한국어 문장만
-- 냉장고 재료 우선(fromFridge=true), 다른 요일과 메뉴 겹침 최소화
+- 냉장고 재료명은 입력 목록의 이름을 최대한 그대로 사용
+- 냉장고 외 재료/구매 제안/대체 재료 제안 금지
+- 메뉴 title에도 냉장고 외 재료명을 넣지 말 것
+- fromFridge=true는 냉장고 재료에만 사용
+- fromFridge=false는 기본 조리요소(${pantryList})만 허용
 
 JSON:
 {
@@ -189,6 +195,7 @@ export function buildDayDetailFromSkeletonPrompt(params: {
 }): string {
   const { request, skeletonDay, dayIndex } = params;
   const { userProfile, ingredients } = request;
+  const pantryList = DEFAULT_PANTRY_STAPLES.join(", ");
   const ingredientList = ingredients
     .map((item) =>
       item.quantityText ? `${item.name}(${item.quantityText})` : item.name,
@@ -219,7 +226,8 @@ export function buildDayDetailFromSkeletonPrompt(params: {
 - coachNote는 최대 80자
 - 짧고 실용적인 한국어, 수식어 과다 금지
 - JSON 외 텍스트 금지
-- ${request.fridgeOnly ? "모든 ingredients는 fromFridge=true만 허용. 냉장고 밖 재료 절대 금지." : "냉장고 밖 재료는 필요한 경우에만 최소한으로 사용."}
+- 메뉴 title에도 냉장고 목록 밖 재료명을 넣지 말 것
+- ${request.fridgeOnly ? `fromFridge=true는 냉장고 재료만 허용, fromFridge=false는 기본 조리요소(${pantryList})만 허용` : "냉장고 밖 재료는 필요한 경우에만 최소한으로 사용."}
 
 골격(JSON):
 ${JSON.stringify(skeletonDay)}
