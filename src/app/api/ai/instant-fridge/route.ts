@@ -13,6 +13,7 @@ import {
   getStoredProfileDocAdmin,
   isAdminConfigured,
   listStoredIngredientsAdmin,
+  MAX_INSTANT_RECOMMENDATIONS_PER_DAY,
   releaseInstantRecommendationLease,
   reserveInstantRecommendationLease,
   verifyIdToken,
@@ -132,7 +133,7 @@ export async function POST(request: Request) {
       if (lease.reason === "limit") {
         return errorResponse(
           429,
-          "오늘 instant 추천 10회를 모두 사용했어요. 내일 다시 시도해 주세요.",
+          `오늘 추천 ${MAX_INSTANT_RECOMMENDATIONS_PER_DAY}회를 모두 사용했어요. 내일 다시 시도해 주세요.`,
           "INSTANT_DAILY_LIMIT",
         );
       }

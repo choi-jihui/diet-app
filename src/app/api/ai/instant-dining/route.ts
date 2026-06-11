@@ -10,6 +10,7 @@ import {
 import {
   getStoredProfileDocAdmin,
   isAdminConfigured,
+  MAX_INSTANT_RECOMMENDATIONS_PER_DAY,
   releaseInstantRecommendationLease,
   reserveInstantRecommendationLease,
   verifyIdToken,
@@ -25,10 +26,6 @@ const GENERIC_ERROR =
 
 function errorResponse(status: number, message: string, code?: string) {
   return NextResponse.json({ error: message, code }, { status });
-}
-
-function dedupe(values: string[]): string[] {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
 export async function POST(request: Request) {
@@ -80,10 +77,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const input = {
-    ...parsedRequest.data,
-    candidateMenus: dedupe(parsedRequest.data.candidateMenus),
-  };
+  const input = parsedRequest.data;
 
   const dateKey = formatYmd(new Date());
   const requestId = crypto.randomUUID();
@@ -96,7 +90,7 @@ export async function POST(request: Request) {
       if (lease.reason === "limit") {
         return errorResponse(
           429,
-          "오늘 instant 추천 10회를 모두 사용했어요. 내일 다시 시도해 주세요.",
+          `오늘 추천 ${MAX_INSTANT_RECOMMENDATIONS_PER_DAY}회를 모두 사용했어요. 내일 다시 시도해 주세요.`,
           "INSTANT_DAILY_LIMIT",
         );
       }

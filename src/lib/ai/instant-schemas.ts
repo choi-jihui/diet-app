@@ -38,8 +38,6 @@ export const instantFridgeRequestSchema = z
 export const instantDiningRequestSchema = z.object({
   mealSlot: z.enum(MEAL_SLOTS),
   category: trimmedShortText,
-  candidateMenus: z.array(trimmedShortText).max(10).default([]),
-  budgetText: z.string().trim().max(40).optional(),
   hungerLevel: z.enum(HUNGER_LEVELS),
   remainingCalories: z.number().int().min(0).max(6000).optional(),
 });

@@ -85,7 +85,9 @@ strict constraints:
 - excludedIngredients와 알레르기/비선호 음식은 절대 사용 금지.
 - prepMinutes는 ${request.maxPrepMinutes} 이하.
 - 결과 3개는 title, 구성, 조리법이 서로 달라야 함.
-- steps는 짧고 실행 가능하게 작성.
+- steps는 1~3개, 각 한 문장으로 짧게.
+- ingredients는 옵션당 최대 5개, why는 한 문장(최대 40자).
+- JSON 문자열 안에 줄바꿈이나 큰따옴표를 넣지 말 것.
 
 JSON:
 {
@@ -107,8 +109,6 @@ export function buildInstantDiningPrompt({
   request,
   profileDoc,
 }: BuildDiningPromptParams): string {
-  const candidateMenus = request.candidateMenus.join(", ") || "없음";
-  const budgetText = request.budgetText?.trim() || "없음";
   const allergies = profileDoc.profile.allergies.join(", ") || "없음";
   const dislikedFoods = profileDoc.profile.dislikedFoods.join(", ") || "없음";
 
@@ -116,8 +116,6 @@ export function buildInstantDiningPrompt({
 
 mealSlot: ${request.mealSlot}
 category: ${request.category}
-candidateMenus: ${candidateMenus}
-budgetText: ${budgetText}
 hungerLevel: ${request.hungerLevel}
 remainingCalories: ${request.remainingCalories ?? "미입력"}
 
@@ -127,12 +125,14 @@ allergies: ${allergies}
 disliked foods: ${dislikedFoods}
 
 rules:
-- 결과는 정확히 3개.
+- ${request.category} 카테고리에서 흔히 주문할 수 있는 대표 메뉴 3개를 직접 골라 추천.
+- 결과는 정확히 3개, 서로 다른 메뉴.
 - estimatedCaloriesRange는 반드시 min/max 범위로 제시.
 - 메뉴를 금지하는 어조보다 주문/양 조절 팁 중심.
 - 죄책감 유도 문구 금지.
 - "다음 끼니 굶기", "칼로리 만회", "운동으로 태우기" 금지.
 - balanceTip은 단백질/채소/수분 중심의 균형 팁으로 작성.
+- 모든 문자열은 짧은 한국어 한 문장으로 작성. orderTips/portionTips는 각 1~2개만.
 
 JSON:
 {

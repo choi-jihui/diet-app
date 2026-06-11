@@ -24,8 +24,12 @@ import {
 } from "@/lib/ai/fridge-only";
 
 const INSTANT_MAX_RETRY = 1;
-const FRIDGE_TIMEOUT_MS = 45_000;
-const DINING_TIMEOUT_MS = 45_000;
+// 2회 시도 합계가 lease(75초)와 maxDuration(90초) 안에 들어오도록 잡는다.
+const FRIDGE_TIMEOUT_MS = 35_000;
+const DINING_TIMEOUT_MS = 35_000;
+// gemini 2.5/3.5 계열은 thinking 토큰이 maxOutputTokens에 포함되므로 여유 있게 잡는다.
+const INSTANT_BASE_MAX_TOKENS = 4096;
+const INSTANT_RETRY_MAX_TOKENS = 8192;
 
 const BANNED_BALANCE_PATTERNS = [
   /굶/iu,
@@ -175,7 +179,8 @@ export async function generateInstantFridgeRecommendations({
         system: INSTANT_FRIDGE_SYSTEM_PROMPT,
         user: `${promptBase}${repairPrompt}`,
         model,
-        maxOutputTokens: 2048,
+        maxOutputTokens:
+          attempt === 0 ? INSTANT_BASE_MAX_TOKENS : INSTANT_RETRY_MAX_TOKENS,
         timeoutMs: FRIDGE_TIMEOUT_MS,
         responseJsonSchema: INSTANT_FRIDGE_RESPONSE_JSON_SCHEMA,
       });
@@ -235,10 +240,7 @@ export async function generateInstantDiningRecommendations({
   profileDoc,
   model,
 }: GenerateInstantDiningParams) {
-  const requestPayload: InstantDiningRequest = {
-    ...request,
-    candidateMenus: dedupe(request.candidateMenus),
-  };
+  const requestPayload: InstantDiningRequest = request;
 
   let lastErrorCode = "UNKNOWN";
   let repairHint = "";
@@ -260,7 +262,8 @@ export async function generateInstantDiningRecommendations({
         system: INSTANT_DINING_SYSTEM_PROMPT,
         user: `${promptBase}${repairPrompt}`,
         model,
-        maxOutputTokens: 2048,
+        maxOutputTokens:
+          attempt === 0 ? INSTANT_BASE_MAX_TOKENS : INSTANT_RETRY_MAX_TOKENS,
         timeoutMs: DINING_TIMEOUT_MS,
         responseJsonSchema: INSTANT_DINING_RESPONSE_JSON_SCHEMA,
       });

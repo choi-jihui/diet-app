@@ -25,8 +25,6 @@ export function DiningModeForm({ remainingCalories }: DiningModeFormProps) {
   const [mealSlot, setMealSlot] = useState<MealSlot>("lunch");
   const [category, setCategory] = useState<DiningCategory>("한식");
   const [customCategory, setCustomCategory] = useState("");
-  const [candidateMenusText, setCandidateMenusText] = useState("");
-  const [budget, setBudget] = useState("");
   const [hungerLevel, setHungerLevel] = useState<HungerLevel>("normal");
 
   const handleRecommend = async () => {
@@ -40,20 +38,9 @@ export function DiningModeForm({ remainingCalories }: DiningModeFormProps) {
       return;
     }
 
-    const candidateMenus = Array.from(
-      new Set(
-        candidateMenusText
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
-      ),
-    );
-
     await recommendDining({
       mealSlot,
       category: categoryValue,
-      candidateMenus,
-      budgetText: budget.trim() || undefined,
       hungerLevel,
       remainingCalories,
     });
@@ -102,34 +89,6 @@ export function DiningModeForm({ remainingCalories }: DiningModeFormProps) {
           />
         </div>
       ) : null}
-
-      <div>
-        <label htmlFor="menu-consideration" className="text-sm font-medium text-gakk-text">
-          후보 메뉴 <span className="text-gakk-text-muted">(쉼표로 구분)</span>
-        </label>
-        <input
-          id="menu-consideration"
-          value={candidateMenusText}
-          onChange={(event) => setCandidateMenusText(event.target.value)}
-          placeholder="예: 김치찌개, 비빔밥"
-          className={inputClassName}
-        />
-      </div>
-
-      <div>
-        <label htmlFor="budget" className="text-sm font-medium text-gakk-text">
-          예산 <span className="text-gakk-text-muted">(선택)</span>
-        </label>
-        <input
-          id="budget"
-          type="number"
-          inputMode="numeric"
-          value={budget}
-          onChange={(event) => setBudget(event.target.value)}
-          placeholder="예: 12000"
-          className={inputClassName}
-        />
-      </div>
 
       <PillSelect
         label="배고픔 정도"

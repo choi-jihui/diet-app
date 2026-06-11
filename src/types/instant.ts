@@ -20,8 +20,6 @@ export interface InstantFridgeRequestPayload {
 export interface InstantDiningRequestPayload {
   mealSlot: MealSlot;
   category: string;
-  candidateMenus: string[];
-  budgetText?: string;
   hungerLevel: HungerLevel;
   remainingCalories?: number;
 }
