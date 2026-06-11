@@ -74,12 +74,12 @@ interface StreamMetrics {
 
 function getDayMaxTokens(selectedSlotCount: number): number {
   if (selectedSlotCount <= 1) {
-    return 1800;
+    return 2400;
   }
   if (selectedSlotCount === 2) {
-    return 3000;
+    return 3800;
   }
-  return 4200;
+  return 5500;
 }
 
 function getModelFallbackChain(): string[] {

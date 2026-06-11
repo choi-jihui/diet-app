@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { MealOptionCard } from "@/components/diet/MealOptionCard";
 import { useIngredients } from "@/hooks/useIngredients";
 import { useWeeklyPlan } from "@/hooks/useWeeklyPlan";
@@ -19,6 +19,13 @@ interface WeekPlanManagerProps {
 }
 
 const VALID_OPTION_TYPES: MealOptionType[] = ["fat_loss", "filling", "lazy"];
+const GENERATING_CHEER_MESSAGES = [
+  "건강한 식단 구성 중... 각잡고 다이어트 도전!",
+  "냉장고 재료를 똑똑하게 조합하고 있어요.",
+  "지속 가능한 식단으로 다듬는 중이에요.",
+  "무리하지 않는 감량 플랜을 맞추고 있어요.",
+  "오늘도 실천 가능한 한 끼를 준비 중이에요.",
+] as const;
 
 function isValidMealOption(value: unknown): value is MealOption {
   if (!value || typeof value !== "object") {
@@ -62,10 +69,23 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
 
   const [selectedDay, setSelectedDay] = useState(0);
   const [userPickedDay, setUserPickedDay] = useState(false);
+  const [cheerIndex, setCheerIndex] = useState(0);
 
   const isGenerating = status === "generating";
   const displayPlan =
     isGenerating && draftPlan ? draftPlan : plan;
+
+  useEffect(() => {
+    if (!isGenerating) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setCheerIndex((prev) => (prev + 1) % GENERATING_CHEER_MESSAGES.length);
+    }, 2600);
+
+    return () => window.clearInterval(interval);
+  }, [isGenerating]);
 
   const ingredientCount = ingredients.items.length;
   const isBusyLoading =
@@ -165,6 +185,13 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
     ? displayPlan.shoppingSuggestions
     : [];
   const progress = generatingProgress;
+  const generatingCheerMessage = progress
+    ? progress.completed >= progress.total
+      ? "마지막 점검 중이에요. 거의 다 됐어요!"
+      : GENERATING_CHEER_MESSAGES[
+          (progress.completed + cheerIndex) % GENERATING_CHEER_MESSAGES.length
+        ]
+    : null;
 
   return (
     <div className="space-y-4">
@@ -175,6 +202,11 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
               ? `${progress.completed}/${progress.total}일 완료 · ${progress.currentLabel} 준비 중`
               : "장보기 목록 정리 중"}
           </p>
+          {generatingCheerMessage ? (
+            <p className="mt-1 text-xs text-gakk-text-muted">
+              {generatingCheerMessage}
+            </p>
+          ) : null}
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white">
             <div
               className="h-full rounded-full bg-gakk-mint transition-all duration-500"
