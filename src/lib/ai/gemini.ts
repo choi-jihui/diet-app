@@ -15,11 +15,24 @@ export type GeminiErrorCode =
 
 export class GeminiError extends Error {
   code: GeminiErrorCode;
+  statusCode?: number;
+  finishReason?: string;
+  rawSample?: string;
 
-  constructor(code: GeminiErrorCode) {
+  constructor(
+    code: GeminiErrorCode,
+    options?: {
+      statusCode?: number;
+      finishReason?: string;
+      rawSample?: string;
+    },
+  ) {
     super(code);
     this.name = "GeminiError";
     this.code = code;
+    this.statusCode = options?.statusCode;
+    this.finishReason = options?.finishReason;
+    this.rawSample = options?.rawSample;
   }
 }
 
@@ -61,26 +74,52 @@ function parseModelJson(text: string): unknown {
     }
   }
 
-  throw new GeminiError("invalid_json");
+  throw new GeminiError("invalid_json", {
+    rawSample: body.slice(0, 800),
+  });
 }
 
-/** 서버 전용. Gemini를 호출해 JSON으로 강제된 응답을 파싱해 반환한다. */
-export async function generateJsonContent(params: {
+export interface GenerateJsonContentParams {
   system: string;
   user: string;
+  model?: string;
   maxOutputTokens?: number;
   timeoutMs?: number;
-}): Promise<unknown> {
+  responseSchema?: unknown;
+  signal?: AbortSignal;
+}
+
+export interface GenerateJsonContentResult {
+  data: unknown;
+  model: string;
+  durationMs: number;
+  finishReason: string;
+}
+
+/** 서버 전용. Gemini를 호출해 JSON으로 강제된 응답과 메타를 반환한다. */
+export async function generateJsonContentWithMeta(
+  params: GenerateJsonContentParams,
+): Promise<GenerateJsonContentResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new GeminiError("missing_key");
   }
 
-  const model = getGeminiModel();
+  const model = params.model?.trim() || getGeminiModel();
   const url = `${GENERATE_ENDPOINT}/${model}:generateContent`;
+  const startedAt = Date.now();
 
   let response: Response;
   try {
+    const generationConfig: Record<string, unknown> = {
+      responseMimeType: "application/json",
+      temperature: 0.1,
+      maxOutputTokens: params.maxOutputTokens ?? 8192,
+    };
+    if (params.responseSchema) {
+      generationConfig.responseSchema = params.responseSchema;
+    }
+
     response = await fetch(url, {
       method: "POST",
       headers: {
@@ -90,13 +129,12 @@ export async function generateJsonContent(params: {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: params.system }] },
         contents: [{ role: "user", parts: [{ text: params.user }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.1,
-          maxOutputTokens: params.maxOutputTokens ?? 8192,
-        },
+        generationConfig,
       }),
-      signal: AbortSignal.timeout(params.timeoutMs ?? 90_000),
+      signal:
+        params.signal && typeof AbortSignal.any === "function"
+          ? AbortSignal.any([params.signal, AbortSignal.timeout(params.timeoutMs ?? 90_000)])
+          : (params.signal ?? AbortSignal.timeout(params.timeoutMs ?? 90_000)),
     });
   } catch {
     throw new GeminiError("timeout");
@@ -114,7 +152,7 @@ export async function generateJsonContent(params: {
     console.error(
       `[gemini] http ${response.status} (${model}): ${reason.slice(0, 200)}`,
     );
-    throw new GeminiError("http_error");
+    throw new GeminiError("http_error", { statusCode: response.status });
   }
 
   const data = (await response.json()) as GeminiResponse;
@@ -129,11 +167,17 @@ export async function generateJsonContent(params: {
 
   if (finishReason === "MAX_TOKENS") {
     console.error(`[gemini] truncated (${model}): length=${text.length}`);
-    throw new GeminiError("truncated");
+    throw new GeminiError("truncated", { finishReason });
   }
 
   try {
-    return parseModelJson(text);
+    const data = parseModelJson(text);
+    return {
+      data,
+      model,
+      durationMs: Date.now() - startedAt,
+      finishReason,
+    };
   } catch (caught) {
     if (caught instanceof GeminiError) {
       console.error(`[gemini] invalid_json (${model}): length=${text.length}`);
@@ -142,4 +186,12 @@ export async function generateJsonContent(params: {
     console.error(`[gemini] invalid_json (${model}): length=${text.length}`);
     throw new GeminiError("invalid_json");
   }
+}
+
+/** 서버 전용. 기존 호출 호환을 위한 래퍼. */
+export async function generateJsonContent(
+  params: GenerateJsonContentParams,
+): Promise<unknown> {
+  const result = await generateJsonContentWithMeta(params);
+  return result.data;
 }

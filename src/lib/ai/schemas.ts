@@ -73,13 +73,13 @@ const mealIngredientLineSchema = z.object({
 
 const mealOptionSchema = z.object({
   type: z.enum(MEAL_OPTION_TYPES),
-  title: z.string().min(1).max(80),
-  ingredients: z.array(mealIngredientLineSchema).max(20),
-  steps: z.array(z.string().max(200)).max(12),
+  title: z.string().min(1).max(50),
+  ingredients: z.array(mealIngredientLineSchema).max(4),
+  steps: z.array(z.string().max(120)).min(1).max(2),
   estimatedCalories: z.number().int().nonnegative().max(3000),
   estimatedProteinG: z.number().nonnegative().max(300),
-  prepMinutes: z.number().int().nonnegative().max(240),
-  why: z.string().max(200),
+  prepMinutes: z.number().int().nonnegative().max(180),
+  why: z.string().max(50),
 });
 
 const plannedMealSchema = z.object({
@@ -101,8 +101,48 @@ export const dailyPlanSchema = z.object({
   date: z.string().regex(YMD),
   dayLabel: z.string().max(10),
   meals: z.array(plannedMealSchema),
-  coachNote: z.string().max(300),
+  coachNote: z.string().max(80),
 });
+
+const skeletonMealOptionSchema = z.object({
+  type: z.enum(MEAL_OPTION_TYPES),
+  title: z.string().min(1).max(50),
+  estimatedCalories: z.number().int().nonnegative().max(3000),
+  estimatedProteinG: z.number().nonnegative().max(300),
+  prepMinutes: z.number().int().nonnegative().max(180),
+});
+
+const skeletonPlannedMealSchema = z.object({
+  mealType: z.enum(MEAL_SLOTS),
+  targetCalories: z.number().int().nonnegative().max(3000),
+  options: z
+    .array(skeletonMealOptionSchema)
+    .length(3)
+    .superRefine((options, ctx) => {
+      for (const type of MEAL_OPTION_TYPES) {
+        if (options.filter((option) => option.type === type).length !== 1) {
+          ctx.addIssue({
+            code: "custom",
+            message: `옵션 type "${type}"은 정확히 한 번만 있어야 합니다.`,
+          });
+        }
+      }
+    }),
+});
+
+export const dailySkeletonSchema = z.object({
+  date: z.string().regex(YMD),
+  dayLabel: z.string().max(10),
+  meals: z.array(skeletonPlannedMealSchema),
+});
+
+export const weeklySkeletonSchema = z.object({
+  weekStartDate: z.string().regex(YMD),
+  dailyPlans: z.array(dailySkeletonSchema).length(7),
+});
+
+export type DailySkeleton = z.infer<typeof dailySkeletonSchema>;
+export type WeeklySkeleton = z.infer<typeof weeklySkeletonSchema>;
 
 /** 하루치 식단 응답 검증(날짜·선택 끼니 일치). */
 export function buildSingleDayPlanResponseSchema(
@@ -148,9 +188,128 @@ export function buildSingleDayPlanResponseSchema(
   });
 }
 
+/** 1단계 골격 검증(7일 날짜/끼니/옵션 type 강제). */
+export function buildWeeklySkeletonResponseSchema(
+  weekStartDate: string,
+  selectedSlots: readonly (typeof MEAL_SLOTS)[number][],
+) {
+  const expectedDates = buildWeekDates(weekStartDate).map((entry) => entry.date);
+  const expectedDayLabels = buildWeekDates(weekStartDate).map(
+    (entry) => entry.dayLabel,
+  );
+  const slotSet = new Set(selectedSlots);
+
+  return weeklySkeletonSchema.superRefine((weekly, ctx) => {
+    if (weekly.weekStartDate !== weekStartDate) {
+      ctx.addIssue({
+        code: "custom",
+        message: `weekStartDate는 ${weekStartDate} 이어야 합니다.`,
+      });
+    }
+
+    weekly.dailyPlans.forEach((day, index) => {
+      if (day.date !== expectedDates[index]) {
+        ctx.addIssue({
+          code: "custom",
+          message: `dailyPlans[${index}].date는 ${expectedDates[index]} 이어야 합니다.`,
+        });
+      }
+      if (day.dayLabel !== expectedDayLabels[index]) {
+        ctx.addIssue({
+          code: "custom",
+          message: `dailyPlans[${index}].dayLabel은 ${expectedDayLabels[index]} 이어야 합니다.`,
+        });
+      }
+
+      const mealTypes = day.meals.map((meal) => meal.mealType);
+      for (const mealType of mealTypes) {
+        if (!slotSet.has(mealType)) {
+          ctx.addIssue({
+            code: "custom",
+            message: `선택하지 않은 끼니(${mealType})가 포함됐습니다.`,
+          });
+        }
+      }
+      for (const slot of selectedSlots) {
+        if (mealTypes.filter((type) => type === slot).length !== 1) {
+          ctx.addIssue({
+            code: "custom",
+            message: `끼니 ${slot}은 하루에 정확히 한 번 있어야 합니다.`,
+          });
+        }
+      }
+    });
+  });
+}
+
+/** 2단계 상세 검증(골격의 date/day/meal/option/영양수치 고정). */
+export function buildDetailedDayFromSkeletonResponseSchema(
+  skeletonDay: DailySkeleton,
+  selectedSlots: readonly (typeof MEAL_SLOTS)[number][],
+) {
+  const base = buildSingleDayPlanResponseSchema(
+    skeletonDay.date,
+    skeletonDay.dayLabel,
+    selectedSlots,
+  );
+
+  return base.superRefine((day, ctx) => {
+    for (const skeletonMeal of skeletonDay.meals) {
+      const actualMeal = day.meals.find(
+        (meal) => meal.mealType === skeletonMeal.mealType,
+      );
+      if (!actualMeal) {
+        ctx.addIssue({
+          code: "custom",
+          message: `끼니 ${skeletonMeal.mealType}가 누락됐습니다.`,
+        });
+        continue;
+      }
+
+      for (const skeletonOption of skeletonMeal.options) {
+        const actualOption = actualMeal.options.find(
+          (option) => option.type === skeletonOption.type,
+        );
+        if (!actualOption) {
+          ctx.addIssue({
+            code: "custom",
+            message: `옵션 ${skeletonOption.type}가 누락됐습니다.`,
+          });
+          continue;
+        }
+
+        if (actualOption.title !== skeletonOption.title) {
+          ctx.addIssue({
+            code: "custom",
+            message: `옵션 ${skeletonOption.type} title은 골격과 동일해야 합니다.`,
+          });
+        }
+        if (actualOption.estimatedCalories !== skeletonOption.estimatedCalories) {
+          ctx.addIssue({
+            code: "custom",
+            message: `옵션 ${skeletonOption.type} estimatedCalories는 골격과 동일해야 합니다.`,
+          });
+        }
+        if (actualOption.estimatedProteinG !== skeletonOption.estimatedProteinG) {
+          ctx.addIssue({
+            code: "custom",
+            message: `옵션 ${skeletonOption.type} estimatedProteinG는 골격과 동일해야 합니다.`,
+          });
+        }
+        if (actualOption.prepMinutes !== skeletonOption.prepMinutes) {
+          ctx.addIssue({
+            code: "custom",
+            message: `옵션 ${skeletonOption.type} prepMinutes는 골격과 동일해야 합니다.`,
+          });
+        }
+      }
+    }
+  });
+}
+
 const shoppingSuggestionSchema = z.object({
   name: z.string().min(1).max(40),
-  reason: z.string().max(160),
+  reason: z.string().max(100),
   priority: z.enum(["optional", "recommended"]),
 });
 

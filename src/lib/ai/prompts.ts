@@ -2,7 +2,7 @@ import {
   MEAL_SLOT_LABELS_KO,
   type SlotBudget,
 } from "@/lib/ai/calorie-allocation";
-import type { GenerateWeeklyPlanRequest } from "@/lib/ai/schemas";
+import type { DailySkeleton, GenerateWeeklyPlanRequest } from "@/lib/ai/schemas";
 import type { WeekDate } from "@/lib/utils/date";
 import type { UnmanagedMealCalories } from "@/types/meal";
 
@@ -74,7 +74,7 @@ export function buildSingleDayPlanPrompt({
 - date="${dayDate}", dayLabel="${dayLabel}"
 - meals는 ${selectedSlots}만, 각 1개
 - 각 meal.options는 fat_loss, filling, lazy 각 1개
-- ingredients는 옵션당 최대 5개, steps는 최대 3줄(짧게), why는 한 문장
+- ingredients는 옵션당 최대 4개, steps는 1~2줄(짧게), why는 한 문장(최대 50자)
 - JSON 문자열 값 안에 큰따옴표(")나 줄바꿈을 넣지 말 것. 간단한 한국어 문장만
 - 냉장고 재료 우선(fromFridge=true), 다른 요일과 메뉴 겹침 최소화
 
@@ -121,6 +121,139 @@ JSON:
 {
   "shoppingSuggestions": [{ "name": "string", "reason": "string", "priority": "optional | recommended" }],
   "safetyNote": "string"
+}`;
+}
+
+/** 1단계: 7일 골격(짧은 제목+영양 추정치)만 생성한다. */
+export function buildWeeklySkeletonPrompt({
+  request,
+  slotBudgets,
+  weekDates,
+  unmanaged,
+}: BuildPromptParams): string {
+  const { userProfile, nutritionTargets, ingredients, weekStartDate } = request;
+  const ingredientList = ingredients
+    .map((item) =>
+      item.quantityText ? `${item.name}(${item.quantityText})` : item.name,
+    )
+    .join(", ");
+  const budgetLines = slotBudgets
+    .map(
+      (entry) =>
+        `${MEAL_SLOT_LABELS_KO[entry.slot]}(${entry.slot}): 약 ${entry.budget}kcal`,
+    )
+    .join(", ");
+  const days = weekDates
+    .map((entry) => `${entry.date}(${entry.dayLabel})`)
+    .join(", ");
+  const selectedSlots = userProfile.selectedMealSlots.join(", ");
+
+  return `이번 주 7일 식단의 "골격"만 JSON으로 만드세요.
+
+사용자:
+- 성별 ${userProfile.gender}, ${userProfile.age}세
+- 목표 칼로리 ${nutritionTargets.targetCalories}kcal, 단백질 ${nutritionTargets.proteinGoalG}g
+- 알레르기: ${userProfile.allergies.join(", ") || "없음"}
+- 비선호: ${userProfile.dislikedFoods.join(", ") || "없음"}
+- 조리도구: ${userProfile.cookingTools.join(", ") || "기본"}
+
+냉장고: ${ingredientList}
+관리 끼니: ${selectedSlots}
+끼니 예산: ${budgetLines}
+비관리 끼니 여유: ${unmanaged.min}~${unmanaged.max}kcal
+7일 날짜: ${days}
+
+규칙:
+- weekStartDate="${weekStartDate}", dailyPlans 정확히 7개
+- meals는 ${selectedSlots}만, 각 1개
+- options는 fat_loss/filling/lazy 각 1개
+- title은 50자 이내로 짧고 실용적으로
+- estimatedCalories/estimatedProteinG/prepMinutes는 현실적 추정치
+- ingredients/steps/why/coachNote/shoppingSuggestions/safetyNote는 절대 포함하지 말 것
+- 동일 메뉴/문구 반복 최소화
+- JSON 외 텍스트 금지, 문자열 안 불필요한 줄바꿈 금지
+
+JSON:
+{
+  "weekStartDate": "${weekStartDate}",
+  "dailyPlans": [
+    {
+      "date": "YYYY-MM-DD",
+      "dayLabel": "월",
+      "meals": [
+        {
+          "mealType": "breakfast | lunch | dinner",
+          "targetCalories": 400,
+          "options": [
+            { "type": "fat_loss", "title": "string", "estimatedCalories": 380, "estimatedProteinG": 25, "prepMinutes": 15 },
+            { "type": "filling", "title": "string", "estimatedCalories": 420, "estimatedProteinG": 28, "prepMinutes": 20 },
+            { "type": "lazy", "title": "string", "estimatedCalories": 390, "estimatedProteinG": 22, "prepMinutes": 8 }
+          ]
+        }
+      ]
+    }
+  ]
+}`;
+}
+
+/** 2단계: 골격을 고정한 채 상세(재료/조리법/이유/코치메모)만 채운다. */
+export function buildDayDetailFromSkeletonPrompt(params: {
+  request: GenerateWeeklyPlanRequest;
+  skeletonDay: DailySkeleton;
+  dayIndex: number;
+}): string {
+  const { request, skeletonDay, dayIndex } = params;
+  const { userProfile, ingredients } = request;
+  const ingredientList = ingredients
+    .map((item) =>
+      item.quantityText ? `${item.name}(${item.quantityText})` : item.name,
+    )
+    .join(", ");
+
+  return `골격이 확정된 ${dayIndex + 1}/7 (${skeletonDay.dayLabel}) 식단에 상세만 채우세요.
+
+중요: 아래 값은 절대 변경 금지
+- date, dayLabel
+- mealType
+- 각 option.type
+- title
+- estimatedCalories
+- estimatedProteinG
+- prepMinutes
+
+사용자 제약:
+- 알레르기: ${userProfile.allergies.join(", ") || "없음"}
+- 비선호: ${userProfile.dislikedFoods.join(", ") || "없음"}
+- 조리도구: ${userProfile.cookingTools.join(", ") || "기본"}
+- 냉장고 재료 우선 사용(fromFridge=true): ${ingredientList}
+
+작성 규칙:
+- 옵션별 ingredients 최대 4개
+- 옵션별 steps는 정확히 1~2개
+- why는 한 문장, 최대 50자
+- coachNote는 최대 80자
+- 짧고 실용적인 한국어, 수식어 과다 금지
+- JSON 외 텍스트 금지
+
+골격(JSON):
+${JSON.stringify(skeletonDay)}
+
+반환 JSON:
+{
+  "date": "${skeletonDay.date}",
+  "dayLabel": "${skeletonDay.dayLabel}",
+  "meals": [
+    {
+      "mealType": "breakfast | lunch | dinner",
+      "targetCalories": 400,
+      "options": [
+        { "type": "fat_loss", "title": "string", "ingredients": [{ "name": "string", "amount": "string", "fromFridge": true }], "steps": ["string"], "estimatedCalories": 380, "estimatedProteinG": 25, "prepMinutes": 15, "why": "string" },
+        { "type": "filling", "title": "string", "ingredients": [], "steps": ["string"], "estimatedCalories": 420, "estimatedProteinG": 28, "prepMinutes": 20, "why": "string" },
+        { "type": "lazy", "title": "string", "ingredients": [], "steps": ["string"], "estimatedCalories": 390, "estimatedProteinG": 22, "prepMinutes": 8, "why": "string" }
+      ]
+    }
+  ],
+  "coachNote": "string"
 }`;
 }
 
@@ -176,7 +309,7 @@ export function buildWeeklyPlanUserPrompt({
 - 각 option은 title, ingredients(name, amount, fromFridge), steps, estimatedCalories, estimatedProteinG, prepMinutes, why 포함.
 - 냉장고에 있는 재료는 fromFridge=true.
 - estimatedCalories는 해당 끼니 예산 근처의 현실적인 값.
-- ingredients는 옵션당 최대 5개, steps는 최대 3줄(짧게), why는 한 문장.
+- ingredients는 옵션당 최대 4개, steps는 1~2줄(짧게), why는 한 문장(최대 50자).
 - JSON 문자열 값 안에 큰따옴표(")나 줄바꿈을 넣지 말 것. 간단한 한국어 문장만.
 - shoppingSuggestions는 최대 8개. 비싼 특수 식재료 남발 금지.
 
