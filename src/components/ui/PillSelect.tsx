@@ -1,11 +1,11 @@
-interface PillSelectProps<T extends string> {
+interface PillSelectProps<T extends string | number> {
   label: string;
   options: { value: T; label: string }[];
   value: T;
   onChange: (value: T) => void;
 }
 
-export function PillSelect<T extends string>({
+export function PillSelect<T extends string | number>({
   label,
   options,
   value,

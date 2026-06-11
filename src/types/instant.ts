@@ -2,33 +2,58 @@ import type { MealSlot } from "@/types/user";
 
 export type InstantRecommendationMode = "fridge" | "dining";
 
-export type HungerLevel = "light" | "normal" | "heavy";
+export type HungerLevel = "light" | "normal" | "very_hungry";
 
-export type MealStyle = "light" | "filling" | "simple";
+export type MealStyle = "light" | "filling" | "lazy";
 
-export type CookingTimeBudget = "10min" | "20min" | "30min_plus";
+export type MaxPrepMinutes = 5 | 10 | 20 | 30;
 
-/** 향후 Gemini fridge 모드 입력용 초안 */
-export interface FridgeRecommendationInput {
-  mode: "fridge";
+export interface InstantFridgeRequestPayload {
   mealSlot: MealSlot;
-  wantedIngredients: string[];
+  preferredIngredients: string[];
   excludedIngredients: string[];
   hungerLevel: HungerLevel;
-  cookingTimeBudget: CookingTimeBudget;
-  mealStyle: MealStyle;
+  maxPrepMinutes: MaxPrepMinutes;
+  style: MealStyle;
 }
 
-/** 향후 Gemini dining 모드 입력용 초안 */
-export interface DiningRecommendationInput {
-  mode: "dining";
+export interface InstantDiningRequestPayload {
+  mealSlot: MealSlot;
   category: string;
-  menuConsideration: string;
-  budget?: number;
+  candidateMenus: string[];
+  budgetText?: string;
   hungerLevel: HungerLevel;
   remainingCalories?: number;
 }
 
-export type InstantRecommendationInput =
-  | FridgeRecommendationInput
-  | DiningRecommendationInput;
+export interface InstantFridgeIngredient {
+  name: string;
+  amount: string;
+  fromFridge: boolean;
+}
+
+export interface InstantFridgeRecommendation {
+  title: string;
+  ingredients: InstantFridgeIngredient[];
+  steps: string[];
+  estimatedCalories: number;
+  estimatedProteinG: number;
+  prepMinutes: number;
+  why: string;
+}
+
+export interface InstantDiningCaloriesRange {
+  min: number;
+  max: number;
+}
+
+export interface InstantDiningRecommendation {
+  menuName: string;
+  category: string;
+  estimatedCaloriesRange: InstantDiningCaloriesRange;
+  proteinEstimateG?: number;
+  orderTips: string[];
+  portionTips: string[];
+  why: string;
+  balanceTip: string;
+}

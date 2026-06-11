@@ -1,4 +1,5 @@
 import type { DailyPlan } from "@/types/meal";
+import type { InstantFridgeRecommendation } from "@/types/instant";
 
 export const DEFAULT_PANTRY_STAPLES = [
   "물",
@@ -67,6 +68,40 @@ export function validateFridgeOnlyDayPlan(
         if (!pantryKeys.has(key)) {
           unknown.add(ingredient.name);
         }
+      }
+    }
+  }
+
+  return {
+    isValid: unknown.size === 0,
+    unknownIngredients: Array.from(unknown).slice(0, 12),
+  };
+}
+
+export function validateFridgeOnlyInstantRecommendations(
+  recommendations: InstantFridgeRecommendation[],
+  allowedFridgeKeys: Set<string>,
+  pantryKeys: Set<string>,
+): FridgeValidationResult {
+  const unknown = new Set<string>();
+
+  for (const recommendation of recommendations) {
+    for (const ingredient of recommendation.ingredients) {
+      const key = normalizeIngredientKey(ingredient.name);
+      if (!key) {
+        unknown.add(ingredient.name);
+        continue;
+      }
+
+      if (ingredient.fromFridge) {
+        if (!allowedFridgeKeys.has(key)) {
+          unknown.add(ingredient.name);
+        }
+        continue;
+      }
+
+      if (!pantryKeys.has(key)) {
+        unknown.add(ingredient.name);
       }
     }
   }
