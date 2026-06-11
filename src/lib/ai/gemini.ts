@@ -196,7 +196,10 @@ export async function generateJsonContentWithMeta(
     console.error(
       `[gemini] http ${response.status} (${model}): ${reason.slice(0, 200)}`,
     );
-    throw new GeminiError("http_error", { statusCode: response.status });
+    throw new GeminiError("http_error", {
+      statusCode: response.status,
+      rawSample: reason.slice(0, 800),
+    });
   }
 
   const data = (await response.json()) as GeminiResponse;

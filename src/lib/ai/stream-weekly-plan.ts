@@ -137,6 +137,17 @@ function classifyRetry(
   return "fatal";
 }
 
+function isSchemaTooComplex(caught: unknown): boolean {
+  if (!(caught instanceof GeminiError)) {
+    return false;
+  }
+  if (caught.code !== "http_error" || caught.statusCode !== 400) {
+    return false;
+  }
+  const detail = (caught.rawSample ?? "").toLowerCase();
+  return detail.includes("too many states");
+}
+
 function buildSkeletonRepairPrompt(input: {
   weekStartDate: string;
   selectedSlots: MealSlot[];
@@ -248,6 +259,7 @@ async function generateWeeklySkeletonWithRetry(input: {
   );
   const responseSchema = z.toJSONSchema(schema);
   for (const model of input.models) {
+    let useResponseSchema = true;
     let repairIssues = "";
     let repairPrevious = "";
 
@@ -275,7 +287,7 @@ async function generateWeeklySkeletonWithRetry(input: {
           model,
           maxOutputTokens: SKELETON_MAX_TOKENS,
           timeoutMs: SKELETON_TIMEOUT_MS,
-          responseSchema,
+          responseSchema: useResponseSchema ? responseSchema : undefined,
         });
         if (attempt > 0) {
           input.metrics.retries += 1;
@@ -302,6 +314,16 @@ async function generateWeeklySkeletonWithRetry(input: {
           continue;
         }
       } catch (caught) {
+        if (isSchemaTooComplex(caught) && useResponseSchema) {
+          useResponseSchema = false;
+          input.metrics.retries += 1;
+          console.warn(
+            `[weekly-plan] skeleton schema_too_complex model=${model} -> retry_without_schema`,
+          );
+          await sleepBackoff();
+          continue;
+        }
+
         if (attempt > 0) {
           input.metrics.retries += 1;
         }
@@ -356,6 +378,7 @@ async function generateDayDetailWithRetry(input: {
   );
   const responseSchema = z.toJSONSchema(schema);
   for (const model of input.models) {
+    let useResponseSchema = true;
     let repairIssues = "";
     let repairPrevious = "";
 
@@ -382,7 +405,7 @@ async function generateDayDetailWithRetry(input: {
           model,
           maxOutputTokens: input.maxOutputTokens,
           timeoutMs: DAY_TIMEOUT_MS,
-          responseSchema,
+          responseSchema: useResponseSchema ? responseSchema : undefined,
           signal: input.signal,
         });
         if (attempt > 0) {
@@ -411,6 +434,16 @@ async function generateDayDetailWithRetry(input: {
           continue;
         }
       } catch (caught) {
+        if (isSchemaTooComplex(caught) && useResponseSchema) {
+          useResponseSchema = false;
+          input.metrics.retries += 1;
+          console.warn(
+            `[weekly-plan] day schema_too_complex model=${model} date=${input.skeletonDay.date} dayIndex=${input.dayIndex} -> retry_without_schema`,
+          );
+          await sleepBackoff();
+          continue;
+        }
+
         if (attempt > 0) {
           input.metrics.retries += 1;
         }
