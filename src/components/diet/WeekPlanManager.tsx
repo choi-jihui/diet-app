@@ -12,9 +12,30 @@ import {
   subscribeProfile,
 } from "@/lib/storage/profile-storage";
 import { buildWeekDates, getWeekStartDate } from "@/lib/utils/date";
+import type { MealOption, MealOptionType } from "@/types/meal";
 
 interface WeekPlanManagerProps {
   onGoToFridge: () => void;
+}
+
+const VALID_OPTION_TYPES: MealOptionType[] = ["fat_loss", "filling", "lazy"];
+
+function isValidMealOption(value: unknown): value is MealOption {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const option = value as Record<string, unknown>;
+  return (
+    typeof option.type === "string" &&
+    VALID_OPTION_TYPES.includes(option.type as MealOptionType) &&
+    typeof option.title === "string" &&
+    Array.isArray(option.ingredients) &&
+    Array.isArray(option.steps) &&
+    typeof option.estimatedCalories === "number" &&
+    typeof option.estimatedProteinG === "number" &&
+    typeof option.prepMinutes === "number" &&
+    typeof option.why === "string"
+  );
 }
 
 export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
@@ -203,12 +224,13 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
 
       {currentDay ? (
         <>
-          {meals.map((meal) => {
+          {meals.map((meal, mealIndex) => {
             const mealOptions = Array.isArray(meal.options) ? meal.options : [];
+            const validMealOptions = mealOptions.filter(isValidMealOption);
 
             return (
               <section
-                key={meal.mealType}
+                key={`${String(meal.mealType)}-${mealIndex}`}
                 className="rounded-2xl border border-gakk-line bg-white px-4 py-3"
               >
                 <div className="flex items-baseline justify-between">
@@ -220,9 +242,12 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
                   </span>
                 </div>
                 <div className="mt-1 divide-y divide-gakk-line">
-                  {mealOptions.length > 0 ? (
-                    mealOptions.map((option) => (
-                      <MealOptionCard key={option.type} option={option} />
+                  {validMealOptions.length > 0 ? (
+                    validMealOptions.map((option, optionIndex) => (
+                      <MealOptionCard
+                        key={`${option.type}-${optionIndex}`}
+                        option={option}
+                      />
                     ))
                   ) : (
                     <p className="py-3 text-sm text-gakk-text-muted">

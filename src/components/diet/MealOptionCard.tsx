@@ -11,7 +11,12 @@ const OPTION_LABELS: Record<MealOptionType, { label: string; tone: string }> = {
 
 export function MealOptionCard({ option }: { option: MealOption }) {
   const [open, setOpen] = useState(false);
-  const meta = OPTION_LABELS[option.type];
+  const meta = OPTION_LABELS[option.type] ?? {
+    label: "옵션",
+    tone: "bg-gakk-cream text-gakk-text-muted",
+  };
+  const ingredients = Array.isArray(option.ingredients) ? option.ingredients : [];
+  const steps = Array.isArray(option.steps) ? option.steps : [];
 
   return (
     <div className="py-3">
@@ -44,11 +49,11 @@ export function MealOptionCard({ option }: { option: MealOption }) {
 
       {open ? (
         <div className="mt-3 space-y-3 border-t border-gakk-line pt-3">
-          {option.ingredients.length > 0 ? (
+          {ingredients.length > 0 ? (
             <div>
               <p className="text-xs font-semibold text-gakk-text-muted">재료</p>
               <ul className="mt-1 space-y-1">
-                {option.ingredients.map((item, index) => (
+                {ingredients.map((item, index) => (
                   <li
                     key={index}
                     className="flex items-center gap-2 text-sm text-gakk-text"
@@ -66,11 +71,11 @@ export function MealOptionCard({ option }: { option: MealOption }) {
             </div>
           ) : null}
 
-          {option.steps.length > 0 ? (
+          {steps.length > 0 ? (
             <div>
               <p className="text-xs font-semibold text-gakk-text-muted">조리법</p>
               <ol className="mt-1 list-decimal space-y-1 pl-4 text-sm text-gakk-text">
-                {option.steps.map((step, index) => (
+                {steps.map((step, index) => (
                   <li key={index}>{step}</li>
                 ))}
               </ol>
