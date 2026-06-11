@@ -170,7 +170,6 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
                 type="checkbox"
                 checked={fridgeOnly}
                 onChange={(event) => setFridgeOnly(event.target.checked)}
-                disabled
                 className="h-4 w-4 rounded border-gakk-line text-gakk-mint focus:ring-gakk-mint"
               />
               냉장고 재료로만 식단 만들기(기본 조리요소 외 신규 재료 제외)
@@ -355,9 +354,6 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
             {displayPlan.unmanagedMealCalories?.note ?? ""}
           </p>
           <p className="mt-1 text-xs text-gakk-text-muted">{displayPlan.safetyNote}</p>
-          <p className="mt-1 text-xs text-gakk-text-muted">
-            칼로리와 단백질은 추정치예요.
-          </p>
         </div>
       ) : null}
 
@@ -370,7 +366,6 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
               type="checkbox"
               checked={fridgeOnly}
               onChange={(event) => setFridgeOnly(event.target.checked)}
-              disabled
               className="h-4 w-4 rounded border-gakk-line text-gakk-mint focus:ring-gakk-mint"
             />
             냉장고 재료로만 식단 만들기(기본 조리요소 외 신규 재료 제외)

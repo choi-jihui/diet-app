@@ -79,10 +79,12 @@ export function buildSingleDayPlanPrompt({
 - ingredients는 옵션당 최대 4개, steps는 1~2줄(짧게), why는 한 문장(최대 50자)
 - JSON 문자열 값 안에 큰따옴표(")나 줄바꿈을 넣지 말 것. 간단한 한국어 문장만
 - 냉장고 재료명은 입력 목록의 이름을 최대한 그대로 사용
-- 냉장고 외 재료/구매 제안/대체 재료 제안 금지
+${request.fridgeOnly
+    ? `- 냉장고 외 재료/구매 제안/대체 재료 제안 금지
 - 메뉴 title에도 냉장고 외 재료명을 넣지 말 것
 - fromFridge=true는 냉장고 재료에만 사용
-- fromFridge=false는 기본 조리요소(${pantryList})만 허용
+- fromFridge=false는 기본 조리요소(${pantryList})만 허용`
+    : `- 냉장고 재료 우선(fromFridge=true), 필요 시 냉장고 밖 재료는 최소한으로 사용`}
 
 JSON:
 {

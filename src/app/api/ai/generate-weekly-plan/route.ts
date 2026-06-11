@@ -84,7 +84,7 @@ export async function POST(request: Request) {
 
   const cleanedRequest = {
     ...input,
-    fridgeOnly: true,
+    fridgeOnly: input.fridgeOnly,
     userProfile: {
       ...input.userProfile,
       selectedMealSlots: selectedSlots,

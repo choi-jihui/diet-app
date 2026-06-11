@@ -141,7 +141,7 @@ async function generateSingleDay(
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const prompt =
-        attempt === 0
+        attempt === 0 || !request.fridgeOnly
           ? basePrompt
           : buildDayRepairPrompt({
               basePrompt,
@@ -166,25 +166,27 @@ async function generateSingleDay(
         });
         const validated = schema.safeParse(raw);
         if (validated.success) {
-          const fridgeValidation = validateFridgeOnlyDayPlan(
-            validated.data,
-            allowedFridgeKeys,
-            pantryKeys,
-          );
-          if (fridgeValidation.isValid) {
-            const elapsedMs = Date.now() - dayStartedAt;
-            console.info(
-              `[generate-weekly-plan] DAY_GENERATION_SUCCESS dayIndex=${dayIndex} elapsedMs=${elapsedMs} model=${model}`,
+          if (request.fridgeOnly) {
+            const fridgeValidation = validateFridgeOnlyDayPlan(
+              validated.data,
+              allowedFridgeKeys,
+              pantryKeys,
             );
-            return { day: validated.data, errorCode: "unknown" };
+            if (!fridgeValidation.isValid) {
+              lastFailureCode = "fridge_only_violation";
+              repairUnknownIngredients = fridgeValidation.unknownIngredients;
+              console.error(
+                `[generate-weekly-plan] DAY_GENERATION_FAILURE dayIndex=${dayIndex} errorCode=fridge_only_violation`,
+              );
+              continue;
+            }
           }
 
-          lastFailureCode = "fridge_only_violation";
-          repairUnknownIngredients = fridgeValidation.unknownIngredients;
-          console.error(
-            `[generate-weekly-plan] DAY_GENERATION_FAILURE dayIndex=${dayIndex} errorCode=fridge_only_violation`,
+          const elapsedMs = Date.now() - dayStartedAt;
+          console.info(
+            `[generate-weekly-plan] DAY_GENERATION_SUCCESS dayIndex=${dayIndex} elapsedMs=${elapsedMs} model=${model}`,
           );
-          continue;
+          return { day: validated.data, errorCode: "unknown" };
         }
 
         lastFailureCode = "day_schema_invalid";
@@ -373,7 +375,7 @@ export async function* streamWeeklyMealPlan(
   const finalSchema = buildWeeklyPlanResponseSchema(
     request.weekStartDate,
     selectedSlots,
-    { fridgeOnly: true },
+    { fridgeOnly: request.fridgeOnly },
   );
   const validated = finalSchema.safeParse(plan);
   if (!validated.success) {
