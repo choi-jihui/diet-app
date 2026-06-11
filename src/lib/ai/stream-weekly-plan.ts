@@ -3,7 +3,7 @@ import {
   computeUnmanagedRange,
 } from "@/lib/ai/calorie-allocation";
 import { GeminiError, generateJsonContentWithMeta } from "@/lib/ai/gemini";
-import { getWeeklyGeminiModel } from "@/lib/ai/model";
+import { getGeminiModel, getWeeklyGeminiModel } from "@/lib/ai/model";
 import {
   buildDayDetailFromSkeletonPrompt,
   buildWeeklySkeletonPrompt,
@@ -80,6 +80,13 @@ function getDayMaxTokens(selectedSlotCount: number): number {
     return 3000;
   }
   return 4200;
+}
+
+function getModelFallbackChain(): string[] {
+  const primary = getWeeklyGeminiModel().trim();
+  const fallback = getGeminiModel().trim();
+  const models = [primary, fallback, "gemini-2.5-flash"];
+  return Array.from(new Set(models.filter(Boolean)));
 }
 
 function toIssuesSummary(
@@ -225,7 +232,7 @@ async function generateWeeklySkeletonWithRetry(input: {
   weekDates: ReturnType<typeof buildWeekDates>;
   slotBudgets: ReturnType<typeof computeSlotBudgets>;
   unmanaged: WeeklyMealPlan["unmanagedMealCalories"];
-  model: string;
+  models: string[];
   metrics: StreamMetrics;
 }): Promise<WeeklySkeleton | null> {
   const schema = buildWeeklySkeletonResponseSchema(
@@ -233,91 +240,92 @@ async function generateWeeklySkeletonWithRetry(input: {
     input.selectedSlots,
   );
   const responseSchema = z.toJSONSchema(schema);
-  let repairIssues = "";
-  let repairPrevious = "";
+  for (const model of input.models) {
+    let repairIssues = "";
+    let repairPrevious = "";
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const prompt =
-      attempt === 0
-        ? buildWeeklySkeletonPrompt({
-            request: input.request,
-            slotBudgets: input.slotBudgets,
-            weekDates: input.weekDates,
-            unmanaged: input.unmanaged,
-          })
-        : buildSkeletonRepairPrompt({
-            weekStartDate: input.request.weekStartDate,
-            selectedSlots: input.selectedSlots,
-            issues: repairIssues,
-            previous: repairPrevious,
-          });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const prompt =
+        attempt === 0
+          ? buildWeeklySkeletonPrompt({
+              request: input.request,
+              slotBudgets: input.slotBudgets,
+              weekDates: input.weekDates,
+              unmanaged: input.unmanaged,
+            })
+          : buildSkeletonRepairPrompt({
+              weekStartDate: input.request.weekStartDate,
+              selectedSlots: input.selectedSlots,
+              issues: repairIssues,
+              previous: repairPrevious.slice(0, 400),
+            });
 
-    try {
-      input.metrics.geminiCalls += 1;
-      const result = await generateJsonContentWithMeta({
-        system: WEEKLY_PLAN_SYSTEM_PROMPT,
-        user: prompt,
-        model: input.model,
-        maxOutputTokens: SKELETON_MAX_TOKENS,
-        timeoutMs: SKELETON_TIMEOUT_MS,
-        responseSchema,
-      });
-      if (attempt > 0) {
-        input.metrics.retries += 1;
-      }
+      try {
+        input.metrics.geminiCalls += 1;
+        const result = await generateJsonContentWithMeta({
+          system: WEEKLY_PLAN_SYSTEM_PROMPT,
+          user: prompt,
+          model,
+          maxOutputTokens: SKELETON_MAX_TOKENS,
+          timeoutMs: SKELETON_TIMEOUT_MS,
+          responseSchema,
+        });
+        if (attempt > 0) {
+          input.metrics.retries += 1;
+        }
 
-      const validated = schema.safeParse(result.data);
-      if (validated.success) {
-        input.metrics.skeletonDurationMs = result.durationMs;
-        console.info(
-          `[weekly-plan] skeleton completed model=${result.model} durationMs=${result.durationMs} attempt=${attempt} finishReason=${result.finishReason}`,
+        const validated = schema.safeParse(result.data);
+        if (validated.success) {
+          input.metrics.skeletonDurationMs = result.durationMs;
+          console.info(
+            `[weekly-plan] skeleton completed model=${result.model} durationMs=${result.durationMs} attempt=${attempt} finishReason=${result.finishReason}`,
+          );
+          return validated.data;
+        }
+
+        repairIssues = toIssuesSummary(validated.error.issues);
+        repairPrevious = JSON.stringify(result.data).slice(0, 1200);
+        console.error(
+          "[weekly-plan] skeleton schema_invalid",
+          `model=${model}`,
+          `attempt=${attempt}`,
+          repairIssues,
         );
-        return validated.data;
-      }
+        if (attempt === 0) {
+          continue;
+        }
+      } catch (caught) {
+        if (attempt > 0) {
+          input.metrics.retries += 1;
+        }
 
-      repairIssues = toIssuesSummary(validated.error.issues);
-      repairPrevious = JSON.stringify(result.data).slice(0, 1200);
-      console.error(
-        "[weekly-plan] skeleton schema_invalid",
-        `attempt=${attempt}`,
-        repairIssues,
-      );
-      if (attempt === 0) {
-        continue;
-      }
-      return null;
-    } catch (caught) {
-      if (attempt > 0) {
-        input.metrics.retries += 1;
-      }
+        const retryType = classifyRetry(caught);
+        const code =
+          caught instanceof GeminiError ? caught.code : "unknown_error";
+        const finishReason =
+          caught instanceof GeminiError && caught.finishReason
+            ? caught.finishReason
+            : "unknown";
+        const status =
+          caught instanceof GeminiError && caught.statusCode
+            ? caught.statusCode
+            : "none";
 
-      const retryType = classifyRetry(caught);
-      const code =
-        caught instanceof GeminiError ? caught.code : "unknown_error";
-      const finishReason =
-        caught instanceof GeminiError && caught.finishReason
-          ? caught.finishReason
-          : "unknown";
-      const status =
-        caught instanceof GeminiError && caught.statusCode
-          ? caught.statusCode
-          : "none";
+        console.error(
+          `[weekly-plan] skeleton failed model=${model} attempt=${attempt} code=${code} finishReason=${finishReason} status=${status}`,
+        );
 
-      console.error(
-        `[weekly-plan] skeleton failed model=${input.model} attempt=${attempt} code=${code} finishReason=${finishReason} status=${status}`,
-      );
-
-      if (attempt === 0 && retryType === "repair") {
-        repairIssues = code;
-        repairPrevious =
-          caught instanceof GeminiError ? caught.rawSample ?? "" : "";
-        continue;
+        if (attempt === 0 && retryType === "repair") {
+          repairIssues = code;
+          repairPrevious =
+            caught instanceof GeminiError ? caught.rawSample ?? "" : "";
+          continue;
+        }
+        if (attempt === 0 && retryType === "retry") {
+          await sleepBackoff();
+          continue;
+        }
       }
-      if (attempt === 0 && retryType === "retry") {
-        await sleepBackoff();
-        continue;
-      }
-      return null;
     }
   }
 
@@ -329,7 +337,7 @@ async function generateDayDetailWithRetry(input: {
   selectedSlots: MealSlot[];
   dayIndex: number;
   skeletonDay: DailySkeleton;
-  model: string;
+  models: string[];
   maxOutputTokens: number;
   signal: AbortSignal;
   metrics: StreamMetrics;
@@ -339,95 +347,96 @@ async function generateDayDetailWithRetry(input: {
     input.selectedSlots,
   );
   const responseSchema = z.toJSONSchema(schema);
-  let repairIssues = "";
-  let repairPrevious = "";
+  for (const model of input.models) {
+    let repairIssues = "";
+    let repairPrevious = "";
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const prompt =
-      attempt === 0
-        ? buildDayDetailFromSkeletonPrompt({
-            request: input.request,
-            skeletonDay: input.skeletonDay,
-            dayIndex: input.dayIndex,
-          })
-        : buildDayRepairPrompt({
-            skeletonDay: input.skeletonDay,
-            issues: repairIssues,
-            previous: repairPrevious,
-          });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const prompt =
+        attempt === 0
+          ? buildDayDetailFromSkeletonPrompt({
+              request: input.request,
+              skeletonDay: input.skeletonDay,
+              dayIndex: input.dayIndex,
+            })
+          : buildDayRepairPrompt({
+              skeletonDay: input.skeletonDay,
+              issues: repairIssues,
+              previous: repairPrevious.slice(0, 400),
+            });
 
-    try {
-      input.metrics.geminiCalls += 1;
-      const result = await generateJsonContentWithMeta({
-        system: WEEKLY_PLAN_SYSTEM_PROMPT,
-        user: prompt,
-        model: input.model,
-        maxOutputTokens: input.maxOutputTokens,
-        timeoutMs: DAY_TIMEOUT_MS,
-        responseSchema,
-        signal: input.signal,
-      });
-      if (attempt > 0) {
-        input.metrics.retries += 1;
-      }
+      try {
+        input.metrics.geminiCalls += 1;
+        const result = await generateJsonContentWithMeta({
+          system: WEEKLY_PLAN_SYSTEM_PROMPT,
+          user: prompt,
+          model,
+          maxOutputTokens: input.maxOutputTokens,
+          timeoutMs: DAY_TIMEOUT_MS,
+          responseSchema,
+          signal: input.signal,
+        });
+        if (attempt > 0) {
+          input.metrics.retries += 1;
+        }
 
-      const validated = schema.safeParse(result.data);
-      if (validated.success) {
-        console.info(
-          `[weekly-plan] day completed date=${input.skeletonDay.date} dayIndex=${input.dayIndex} model=${result.model} durationMs=${result.durationMs} attempt=${attempt} finishReason=${result.finishReason}`,
+        const validated = schema.safeParse(result.data);
+        if (validated.success) {
+          console.info(
+            `[weekly-plan] day completed date=${input.skeletonDay.date} dayIndex=${input.dayIndex} model=${result.model} durationMs=${result.durationMs} attempt=${attempt} finishReason=${result.finishReason}`,
+          );
+          return validated.data;
+        }
+
+        repairIssues = toIssuesSummary(validated.error.issues);
+        repairPrevious = JSON.stringify(result.data).slice(0, 1200);
+        console.error(
+          "[weekly-plan] day schema_invalid",
+          `date=${input.skeletonDay.date}`,
+          `dayIndex=${input.dayIndex}`,
+          `model=${model}`,
+          `attempt=${attempt}`,
+          repairIssues,
         );
-        return validated.data;
-      }
+        if (attempt === 0) {
+          continue;
+        }
+      } catch (caught) {
+        if (attempt > 0) {
+          input.metrics.retries += 1;
+        }
 
-      repairIssues = toIssuesSummary(validated.error.issues);
-      repairPrevious = JSON.stringify(result.data).slice(0, 1200);
-      console.error(
-        "[weekly-plan] day schema_invalid",
-        `date=${input.skeletonDay.date}`,
-        `dayIndex=${input.dayIndex}`,
-        `attempt=${attempt}`,
-        repairIssues,
-      );
-      if (attempt === 0) {
-        continue;
-      }
-      return null;
-    } catch (caught) {
-      if (attempt > 0) {
-        input.metrics.retries += 1;
-      }
+        if (caught instanceof DOMException && caught.name === "AbortError") {
+          return null;
+        }
 
-      if (caught instanceof DOMException && caught.name === "AbortError") {
-        return null;
-      }
+        const retryType = classifyRetry(caught);
+        const code =
+          caught instanceof GeminiError ? caught.code : "unknown_error";
+        const finishReason =
+          caught instanceof GeminiError && caught.finishReason
+            ? caught.finishReason
+            : "unknown";
+        const status =
+          caught instanceof GeminiError && caught.statusCode
+            ? caught.statusCode
+            : "none";
 
-      const retryType = classifyRetry(caught);
-      const code =
-        caught instanceof GeminiError ? caught.code : "unknown_error";
-      const finishReason =
-        caught instanceof GeminiError && caught.finishReason
-          ? caught.finishReason
-          : "unknown";
-      const status =
-        caught instanceof GeminiError && caught.statusCode
-          ? caught.statusCode
-          : "none";
+        console.error(
+          `[weekly-plan] day failed date=${input.skeletonDay.date} dayIndex=${input.dayIndex} model=${model} attempt=${attempt} code=${code} finishReason=${finishReason} status=${status}`,
+        );
 
-      console.error(
-        `[weekly-plan] day failed date=${input.skeletonDay.date} dayIndex=${input.dayIndex} model=${input.model} attempt=${attempt} code=${code} finishReason=${finishReason} status=${status}`,
-      );
-
-      if (attempt === 0 && retryType === "repair") {
-        repairIssues = code;
-        repairPrevious =
-          caught instanceof GeminiError ? caught.rawSample ?? "" : "";
-        continue;
+        if (attempt === 0 && retryType === "repair") {
+          repairIssues = code;
+          repairPrevious =
+            caught instanceof GeminiError ? caught.rawSample ?? "" : "";
+          continue;
+        }
+        if (attempt === 0 && retryType === "retry") {
+          await sleepBackoff();
+          continue;
+        }
       }
-      if (attempt === 0 && retryType === "retry") {
-        await sleepBackoff();
-        continue;
-      }
-      return null;
     }
   }
 
@@ -453,7 +462,7 @@ export async function* streamWeeklyPlanSingleCall(
   const budgetBySlot = new Map(
     slotBudgets.map((entry) => [entry.slot, entry.budget]),
   );
-  const model = getWeeklyGeminiModel();
+  const models = getModelFallbackChain();
   const maxOutputTokens = getDayMaxTokens(selectedSlots.length);
   const metrics: StreamMetrics = {
     geminiCalls: 0,
@@ -477,7 +486,7 @@ export async function* streamWeeklyPlanSingleCall(
     weekDates,
     slotBudgets,
     unmanaged,
-    model,
+    models,
     metrics,
   });
 
@@ -526,7 +535,7 @@ export async function* streamWeeklyPlanSingleCall(
       selectedSlots,
       dayIndex,
       skeletonDay,
-      model,
+      models,
       maxOutputTokens,
       signal: controller.signal,
       metrics,
