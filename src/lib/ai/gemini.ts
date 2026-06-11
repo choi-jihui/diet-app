@@ -92,7 +92,7 @@ export async function generateJsonContent(params: {
         contents: [{ role: "user", parts: [{ text: params.user }] }],
         generationConfig: {
           responseMimeType: "application/json",
-          temperature: 0.4,
+          temperature: 0.1,
           maxOutputTokens: params.maxOutputTokens ?? 8192,
         },
       }),

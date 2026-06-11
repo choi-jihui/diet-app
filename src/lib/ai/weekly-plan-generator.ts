@@ -56,7 +56,10 @@ async function generateSingleDay(
         return validated.data;
       }
       console.error(
-        `[generate-weekly-plan] day_schema_invalid ${dayDate} attempt=${attempt}`,
+        "[generate-weekly-plan] day_schema_invalid",
+        dayDate,
+        `attempt=${attempt}`,
+        JSON.stringify(validated.error.issues.slice(0, 10)),
       );
     } catch (caught) {
       const code = caught instanceof GeminiError ? caught.code : "unknown";

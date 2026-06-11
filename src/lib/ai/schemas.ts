@@ -165,6 +165,81 @@ const unmanagedMealCaloriesSchema = z.object({
   note: z.string().max(200),
 });
 
+export const STREAM_FORMAT_ERROR =
+  "생성된 식단 형식이 올바르지 않아요. 다시 시도해 주세요.";
+
+const weeklyPlanStartEventSchema = z.object({
+  type: z.literal("start"),
+  weekStartDate: z.string(),
+  totalDays: z.number().int().positive(),
+  unmanagedMealCalories: unmanagedMealCaloriesSchema,
+});
+
+const weeklyPlanProgressEventSchema = z.object({
+  type: z.literal("progress"),
+  dayIndex: z.number().int().nonnegative(),
+  totalDays: z.number().int().positive(),
+  dayLabel: z.string(),
+  date: z.string(),
+});
+
+const weeklyPlanDayEventSchema = z.object({
+  type: z.literal("day"),
+  dayIndex: z.number().int().min(0).max(6),
+  dailyPlan: z.unknown(),
+});
+
+const weeklyPlanMetaEventSchema = z.object({
+  type: z.literal("meta"),
+  shoppingSuggestions: z.array(shoppingSuggestionSchema),
+  safetyNote: z.string(),
+});
+
+const weeklyPlanPartialEventSchema = z.object({
+  type: z.literal("partial"),
+  completedDays: z.number().int().nonnegative(),
+  totalDays: z.number().int().positive(),
+  plan: z.unknown(),
+});
+
+const weeklyPlanDoneEventSchema = z.object({
+  type: z.literal("done"),
+  plan: z.unknown(),
+});
+
+const weeklyPlanErrorEventSchema = z.object({
+  type: z.literal("error"),
+  message: z.string(),
+  code: z.string().optional(),
+});
+
+const weeklyPlanStreamEventSchema = z.discriminatedUnion("type", [
+  weeklyPlanStartEventSchema,
+  weeklyPlanProgressEventSchema,
+  weeklyPlanDayEventSchema,
+  weeklyPlanMetaEventSchema,
+  weeklyPlanPartialEventSchema,
+  weeklyPlanDoneEventSchema,
+  weeklyPlanErrorEventSchema,
+]);
+
+export type ParsedWeeklyPlanStreamEvent = z.infer<
+  typeof weeklyPlanStreamEventSchema
+>;
+
+/** NDJSON 한 줄을 런타임 검증한다. */
+export function parseWeeklyPlanStreamEvent(raw: unknown): ParsedWeeklyPlanStreamEvent {
+  const parsed = weeklyPlanStreamEventSchema.safeParse(raw);
+  if (!parsed.success) {
+    console.error(
+      "[useWeeklyPlan] stream_event_invalid",
+      JSON.stringify(parsed.error.issues.slice(0, 10)),
+    );
+    throw new Error(STREAM_FORMAT_ERROR);
+  }
+  return parsed.data;
+}
+
 /**
  * weekStartDate와 selectedMealSlots에 맞춰 응답을 엄격히 검증한다.
  * - dailyPlans 정확히 7개 + weekStartDate부터 연속된 날짜

@@ -135,7 +135,14 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
     );
   }
 
-  const currentDay = displayPlan.dailyPlans[selectedDay];
+  const dailyPlans = Array.isArray(displayPlan.dailyPlans)
+    ? displayPlan.dailyPlans
+    : [];
+  const currentDay = dailyPlans[selectedDay];
+  const meals = Array.isArray(currentDay?.meals) ? currentDay.meals : [];
+  const shoppingSuggestions = Array.isArray(displayPlan.shoppingSuggestions)
+    ? displayPlan.shoppingSuggestions
+    : [];
   const progress = generatingProgress;
 
   return (
@@ -161,7 +168,7 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
       <div className="flex gap-2 overflow-x-auto pb-1">
         {weekDates.map((entry, index) => {
           const isActive = index === selectedDay;
-          const isReady = Boolean(displayPlan.dailyPlans[index]);
+          const isReady = Boolean(dailyPlans[index]);
           const isPending =
             isGenerating &&
             !isReady &&
@@ -196,26 +203,36 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
 
       {currentDay ? (
         <>
-          {currentDay.meals.map((meal) => (
-            <section
-              key={meal.mealType}
-              className="rounded-2xl border border-gakk-line bg-white px-4 py-3"
-            >
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-sm font-semibold text-gakk-text">
-                  {MEAL_SLOT_LABELS_KO[meal.mealType]}
-                </h2>
-                <span className="text-xs text-gakk-text-muted">
-                  약 {meal.targetCalories}kcal
-                </span>
-              </div>
-              <div className="mt-1 divide-y divide-gakk-line">
-                {meal.options.map((option) => (
-                  <MealOptionCard key={option.type} option={option} />
-                ))}
-              </div>
-            </section>
-          ))}
+          {meals.map((meal) => {
+            const mealOptions = Array.isArray(meal.options) ? meal.options : [];
+
+            return (
+              <section
+                key={meal.mealType}
+                className="rounded-2xl border border-gakk-line bg-white px-4 py-3"
+              >
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-sm font-semibold text-gakk-text">
+                    {MEAL_SLOT_LABELS_KO[meal.mealType]}
+                  </h2>
+                  <span className="text-xs text-gakk-text-muted">
+                    약 {meal.targetCalories}kcal
+                  </span>
+                </div>
+                <div className="mt-1 divide-y divide-gakk-line">
+                  {mealOptions.length > 0 ? (
+                    mealOptions.map((option) => (
+                      <MealOptionCard key={option.type} option={option} />
+                    ))
+                  ) : (
+                    <p className="py-3 text-sm text-gakk-text-muted">
+                      식단 정보가 올바르지 않아요. 다시 만들어 주세요.
+                    </p>
+                  )}
+                </div>
+              </section>
+            );
+          })}
 
           {currentDay.coachNote ? (
             <p className="px-1 text-sm text-gakk-text-muted">
@@ -231,13 +248,13 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
         </div>
       )}
 
-      {!isGenerating && displayPlan.shoppingSuggestions.length > 0 ? (
+      {!isGenerating && shoppingSuggestions.length > 0 ? (
         <section className="rounded-2xl border border-gakk-line bg-white px-4 py-3">
           <h2 className="text-sm font-semibold text-gakk-text">
             추가로 있으면 좋은 재료
           </h2>
           <ul className="mt-2 divide-y divide-gakk-line">
-            {displayPlan.shoppingSuggestions.map((item, index) => (
+            {shoppingSuggestions.map((item, index) => (
               <li key={index} className="flex items-start gap-2 py-2">
                 <span
                   className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -261,9 +278,10 @@ export function WeekPlanManager({ onGoToFridge }: WeekPlanManagerProps) {
       {displayPlan.safetyNote ? (
         <div className="rounded-2xl bg-gakk-cream px-4 py-3">
           <p className="text-xs text-gakk-text-muted">
-            비관리 끼니 여유: 약 {displayPlan.unmanagedMealCalories.min}~
-            {displayPlan.unmanagedMealCalories.max}kcal ·{" "}
-            {displayPlan.unmanagedMealCalories.note}
+            비관리 끼니 여유: 약{" "}
+            {displayPlan.unmanagedMealCalories?.min ?? 0}~
+            {displayPlan.unmanagedMealCalories?.max ?? 0}kcal ·{" "}
+            {displayPlan.unmanagedMealCalories?.note ?? ""}
           </p>
           <p className="mt-1 text-xs text-gakk-text-muted">{displayPlan.safetyNote}</p>
           <p className="mt-1 text-xs text-gakk-text-muted">
