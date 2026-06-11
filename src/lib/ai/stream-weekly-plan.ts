@@ -23,7 +23,7 @@ import type { MealSlot } from "@/types/user";
 import { z } from "zod";
 
 const TOTAL_DAYS = 7;
-const SKELETON_MAX_TOKENS = 4000;
+const SKELETON_MAX_TOKENS = 8192;
 const SKELETON_TIMEOUT_MS = 45_000;
 const DAY_TIMEOUT_MS = 45_000;
 const DAY_CONCURRENCY = 2;
