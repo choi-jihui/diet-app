@@ -4,6 +4,9 @@ import { useState, useSyncExternalStore } from "react";
 import { DiningModeForm } from "@/components/instant/DiningModeForm";
 import { FridgeModeForm } from "@/components/instant/FridgeModeForm";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { useTodaySnapshot } from "@/hooks/useDailyLog";
+import { useAuth } from "@/lib/auth/useAuth";
+import { summarizeDailyLog } from "@/lib/calculations/daily-log-summary";
 import {
   getProfileServerSnapshot,
   getProfileSnapshot,
@@ -29,12 +32,28 @@ const MODE_OPTIONS: {
 ];
 
 export function InstantContent() {
+  const { user } = useAuth();
   const [mode, setMode] = useState<InstantRecommendationMode | null>(null);
   const profileData = useSyncExternalStore(
     subscribeProfile,
     getProfileSnapshot,
     getProfileServerSnapshot,
   );
+  const todaySnapshot = useTodaySnapshot(user?.uid);
+
+  // 입력 기록 기준 남은 칼로리. 기록이 한 건도 없으면 undefined(전달 안 함).
+  const summary =
+    profileData && todaySnapshot
+      ? summarizeDailyLog({
+          log: todaySnapshot.log,
+          managedSlots: profileData.profile.selectedMealSlots,
+          targetCalories: profileData.targets.targetCalories,
+        })
+      : null;
+  const remainingCalories =
+    summary && summary.hasAnyFoodRecord
+      ? Math.max(0, summary.targetCalories - summary.consumedCalories)
+      : undefined;
 
   const headerSubtitle =
     mode === null
@@ -83,7 +102,8 @@ export function InstantContent() {
               <FridgeModeForm />
             ) : (
               <DiningModeForm
-                remainingCalories={profileData?.targets.targetCalories}
+                remainingCalories={remainingCalories}
+                targetCalories={profileData?.targets.targetCalories}
               />
             )}
           </>

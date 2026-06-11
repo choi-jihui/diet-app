@@ -17,10 +17,16 @@ const inputClassName =
   "mt-2 w-full rounded-xl border border-gakk-sage/50 bg-gakk-cream px-3.5 py-2.5 text-sm text-gakk-text placeholder:text-gakk-text-muted/60 focus:outline-none focus:ring-2 focus:ring-gakk-mint/30";
 
 interface DiningModeFormProps {
+  /** 입력 기록 기준 남은 칼로리. 오늘 식사 기록이 없으면 undefined. */
   remainingCalories?: number;
+  /** 기록 전 안내용 하루 목표 칼로리. */
+  targetCalories?: number;
 }
 
-export function DiningModeForm({ remainingCalories }: DiningModeFormProps) {
+export function DiningModeForm({
+  remainingCalories,
+  targetCalories,
+}: DiningModeFormProps) {
   const { diningState, recommendDining, clearDiningState } = useInstantRecommendation();
   const [mealSlot, setMealSlot] = useState<MealSlot>("lunch");
   const [category, setCategory] = useState<DiningCategory>("한식");
@@ -99,18 +105,25 @@ export function DiningModeForm({ remainingCalories }: DiningModeFormProps) {
 
       <div>
         <label htmlFor="remaining-calories" className="text-sm font-medium text-gakk-text">
-          오늘 남은 목표 칼로리
+          입력 기록 기준 남은 칼로리
         </label>
         <input
           id="remaining-calories"
           readOnly
           value={
             remainingCalories !== undefined
-              ? `${remainingCalories} kcal`
-              : "프로필 설정 후 표시됩니다"
+              ? `약 ${remainingCalories.toLocaleString()} kcal`
+              : targetCalories !== undefined
+                ? `기록 전이에요 · 목표 ${targetCalories.toLocaleString()} kcal 기준`
+                : "프로필 설정 후 표시됩니다"
           }
           className={`${inputClassName} text-gakk-text-muted`}
         />
+        {remainingCalories !== undefined ? (
+          <p className="mt-1 text-xs text-gakk-text-muted">
+            오늘 입력한 기록 기준이라 실제와 다를 수 있어요.
+          </p>
+        ) : null}
       </div>
 
       <button

@@ -7,6 +7,9 @@ import { CalorieHeroCard } from "@/components/dashboard/CalorieHeroCard";
 import { FridgeCountLine } from "@/components/dashboard/FridgeCountLine";
 import { TodayStatusStrip } from "@/components/dashboard/TodayStatusStrip";
 import { SUPPORTIVE_COPY } from "@/constants/copy";
+import { useTodaySnapshot } from "@/hooks/useDailyLog";
+import { useAuth } from "@/lib/auth/useAuth";
+import { summarizeDailyLog } from "@/lib/calculations/daily-log-summary";
 import {
   getProfileServerSnapshot,
   getProfileSnapshot,
@@ -14,11 +17,13 @@ import {
 } from "@/lib/storage/profile-storage";
 
 export function DashboardContent() {
+  const { user } = useAuth();
   const data = useSyncExternalStore(
     subscribeProfile,
     getProfileSnapshot,
     getProfileServerSnapshot,
   );
+  const todaySnapshot = useTodaySnapshot(user?.uid);
 
   if (!data) {
     return (
@@ -43,6 +48,35 @@ export function DashboardContent() {
 
   const { profile, targets } = data;
 
+  const summary = todaySnapshot
+    ? summarizeDailyLog({
+        log: todaySnapshot.log,
+        managedSlots: profile.selectedMealSlots,
+        targetCalories: targets.targetCalories,
+      })
+    : null;
+
+  const mealStatusValue = summary
+    ? `${summary.loggedManagedMealCount}/${summary.totalManagedMealCount}끼`
+    : "—";
+
+  const waterMl = todaySnapshot?.log?.waterMl ?? 0;
+  const waterStatusValue = todaySnapshot
+    ? `${waterMl.toLocaleString()}/${targets.waterGoalMl.toLocaleString()}ml`
+    : "—";
+
+  const todayCardioSession = todaySnapshot?.cardioPlan?.sessions.find(
+    (session) => session.date === todaySnapshot.today,
+  );
+  const cardioStatusValue = !todaySnapshot
+    ? "—"
+    : !todayCardioSession
+      ? "예정 없음"
+      : todaySnapshot.log?.cardio?.completed &&
+          todaySnapshot.log.cardio.plannedSessionId === todayCardioSession.id
+        ? "완료"
+        : "미완료";
+
   return (
     <div className="space-y-4 px-5 py-4">
       <CalorieHeroCard targets={targets} />
@@ -57,9 +91,9 @@ export function DashboardContent() {
 
       <TodayStatusStrip
         items={[
-          { label: "식단", value: "0%" },
-          { label: "물", value: "0%" },
-          { label: "운동", value: "미완료" },
+          { label: "식단", value: mealStatusValue },
+          { label: "물", value: waterStatusValue },
+          { label: "운동", value: cardioStatusValue },
         ]}
       />
 
