@@ -1,5 +1,7 @@
 import type { DailyLogCardio } from "@/types/cardio";
 import type { MealOptionType, MealSlotType } from "@/types/meal";
+import type { NutritionTargets } from "@/types/nutrition";
+import type { UserProfile } from "@/types/user";
 
 export type MealLogStatus = "unlogged" | "planned" | "custom" | "skipped";
 
@@ -35,8 +37,29 @@ export interface MealLog {
   customEntries?: CustomFoodEntry[];
 }
 
+/** 해당 날짜 기록 시점의 목표값 snapshot. 프로필 재설정 후에도 유지한다. */
+export interface DailyGoalsSnapshot {
+  targetCalories: number;
+  waterGoalMl: number;
+  proteinGoalG: number;
+  managedMealSlots: MealSlotType[];
+}
+
+export function buildDailyGoalsSnapshot(
+  profile: UserProfile,
+  targets: NutritionTargets,
+): DailyGoalsSnapshot {
+  return {
+    targetCalories: targets.targetCalories,
+    waterGoalMl: targets.waterGoalMl,
+    proteinGoalG: targets.proteinGoalG,
+    managedMealSlots: [...profile.selectedMealSlots],
+  };
+}
+
 export interface DailyLog {
   date: string;
+  goalsSnapshot?: DailyGoalsSnapshot;
   meals?: Partial<Record<MealSlotType, MealLog>>;
   extraFoods?: FoodEntry[];
   waterMl?: number;

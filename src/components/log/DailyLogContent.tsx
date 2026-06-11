@@ -23,6 +23,7 @@ import {
   getProfileSnapshot,
   subscribeProfile,
 } from "@/lib/storage/profile-storage";
+import { buildDailyGoalsSnapshot } from "@/types/daily-log";
 import { formatYmd, getWeekStartDate } from "@/lib/utils/date";
 import type { WeeklyCardioPlan } from "@/types/cardio";
 import type { DailyPlan, WeeklyMealPlan } from "@/types/meal";
@@ -57,6 +58,11 @@ export function DailyLogContent() {
   const [selectedDateState, setSelectedDateState] = useState<string | null>(null);
   const selectedDate = selectedDateState ?? localWeek?.today;
 
+  const goalsSnapshotForLog =
+    profileData?.profile && profileData?.targets
+      ? buildDailyGoalsSnapshot(profileData.profile, profileData.targets)
+      : null;
+
   const {
     log,
     status,
@@ -70,7 +76,7 @@ export function DailyLogContent() {
     saveSleep,
     saveWeight,
     saveCardioCompleted,
-  } = useDailyLog(user?.uid, selectedDate);
+  } = useDailyLog(user?.uid, selectedDate, goalsSnapshotForLog);
 
   const [mealPlan, setMealPlan] = useState<WeeklyMealPlan | null>(null);
   const [cardioPlan, setCardioPlan] = useState<WeeklyCardioPlan | null>(null);

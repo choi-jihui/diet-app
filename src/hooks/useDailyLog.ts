@@ -15,7 +15,12 @@ import {
 import { getWeeklyCardioPlan } from "@/lib/firebase/cardio-repo";
 import { WATER_MAX_ML } from "@/types/daily-log";
 import type { CardioSession, WeeklyCardioPlan } from "@/types/cardio";
-import type { DailyLog, FoodEntry, MealLog } from "@/types/daily-log";
+import type {
+  DailyGoalsSnapshot,
+  DailyLog,
+  FoodEntry,
+  MealLog,
+} from "@/types/daily-log";
 import type { MealSlotType } from "@/types/meal";
 
 const GENERIC_ERROR = "기록을 저장하지 못했어요. 다시 시도해 주세요.";
@@ -37,7 +42,11 @@ interface LoadErrorState {
   message: string;
 }
 
-export function useDailyLog(uid: string | undefined, date: string | undefined) {
+export function useDailyLog(
+  uid: string | undefined,
+  date: string | undefined,
+  goalsSnapshot?: DailyGoalsSnapshot | null,
+) {
   // 날짜와 함께 저장해, 이전 날짜 응답이 새 날짜 화면을 덮지 않게 한다.
   const [loaded, setLoaded] = useState<LoadedLog | null>(null);
   const [loadErrorState, setLoadErrorState] = useState<LoadErrorState | null>(
@@ -175,10 +184,11 @@ export function useDailyLog(uid: string | undefined, date: string | undefined) {
           next.meals = meals;
           return next;
         },
-        () => setMealLog(uid, targetDate, slot, mealLog),
+        () =>
+          setMealLog(uid, targetDate, slot, mealLog, goalsSnapshot ?? undefined),
       );
     },
-    [uid, runMutation, baseLog],
+    [uid, runMutation, baseLog, goalsSnapshot],
   );
 
   const saveExtraFoods = useCallback(
@@ -189,10 +199,11 @@ export function useDailyLog(uid: string | undefined, date: string | undefined) {
       await runMutation(
         targetDate,
         (prev) => ({ ...baseLog(prev, targetDate), extraFoods: foods }),
-        () => setExtraFoods(uid, targetDate, foods),
+        () =>
+          setExtraFoods(uid, targetDate, foods, goalsSnapshot ?? undefined),
       );
     },
-    [uid, runMutation, baseLog],
+    [uid, runMutation, baseLog, goalsSnapshot],
   );
 
   const addWater = useCallback(
@@ -212,11 +223,16 @@ export function useDailyLog(uid: string | undefined, date: string | undefined) {
         },
         async () => {
           // 서버는 transaction으로 현재값 기준 증감 → 연속 클릭에도 유실 없음
-          await addWaterMl(uid, targetDate, deltaMl);
+          await addWaterMl(
+            uid,
+            targetDate,
+            deltaMl,
+            goalsSnapshot ?? undefined,
+          );
         },
       );
     },
-    [uid, runMutation, baseLog],
+    [uid, runMutation, baseLog, goalsSnapshot],
   );
 
   const saveWater = useCallback(
@@ -228,10 +244,11 @@ export function useDailyLog(uid: string | undefined, date: string | undefined) {
       await runMutation(
         targetDate,
         (prev) => ({ ...baseLog(prev, targetDate), waterMl: clamped }),
-        () => setWaterMl(uid, targetDate, clamped),
+        () =>
+          setWaterMl(uid, targetDate, clamped, goalsSnapshot ?? undefined),
       );
     },
-    [uid, runMutation, baseLog],
+    [uid, runMutation, baseLog, goalsSnapshot],
   );
 
   const saveSleep = useCallback(
@@ -250,10 +267,11 @@ export function useDailyLog(uid: string | undefined, date: string | undefined) {
           }
           return next;
         },
-        () => setSleepHours(uid, targetDate, hours),
+        () =>
+          setSleepHours(uid, targetDate, hours, goalsSnapshot ?? undefined),
       );
     },
-    [uid, runMutation, baseLog],
+    [uid, runMutation, baseLog, goalsSnapshot],
   );
 
   const saveWeight = useCallback(
@@ -272,10 +290,11 @@ export function useDailyLog(uid: string | undefined, date: string | undefined) {
           }
           return next;
         },
-        () => setWeightKg(uid, targetDate, weightKg),
+        () =>
+          setWeightKg(uid, targetDate, weightKg, goalsSnapshot ?? undefined),
       );
     },
-    [uid, runMutation, baseLog],
+    [uid, runMutation, baseLog, goalsSnapshot],
   );
 
   const saveCardioCompleted = useCallback(
@@ -301,10 +320,17 @@ export function useDailyLog(uid: string | undefined, date: string | undefined) {
             completedAt: completed ? new Date() : null,
           },
         }),
-        () => setCardioCompletion(uid, session, planWeekStartDate, completed),
+        () =>
+          setCardioCompletion(
+            uid,
+            session,
+            planWeekStartDate,
+            completed,
+            goalsSnapshot ?? undefined,
+          ),
       );
     },
-    [uid, runMutation, baseLog],
+    [uid, runMutation, baseLog, goalsSnapshot],
   );
 
   const saveIndicator: SaveIndicator =

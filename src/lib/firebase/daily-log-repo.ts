@@ -4,12 +4,13 @@ import {
   getDoc,
   runTransaction,
   serverTimestamp,
-  setDoc,
 } from "firebase/firestore";
+import { patchPayloadWithGoalsSnapshot } from "@/lib/calculations/goals-snapshot-policy";
 import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase/client";
 import type { CardioSession, DailyLogCardio } from "@/types/cardio";
 import type {
   CustomFoodEntry,
+  DailyGoalsSnapshot,
   DailyLog,
   FoodEntry,
   MealLog,
@@ -18,7 +19,7 @@ import { WATER_MAX_ML } from "@/types/daily-log";
 import type { MealSlotType } from "@/types/meal";
 
 const LOAD_ERROR = "기록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
-const SAVE_ERROR = "기록을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
+const SAVE_ERROR = "기록을 저장하지 못했어요. 다시 시도해 주세요.";
 const AUTH_ERROR = "로그인이 필요해요. 다시 로그인해 주세요.";
 
 function requireUid(uid: string): void {
@@ -80,18 +81,28 @@ function cleanMealLog(mealLog: MealLog): Record<string, unknown> {
   return cleaned;
 }
 
+function applyGoalsSnapshotToPayload(
+  existing: DailyLog | null,
+  goalsSnapshot: DailyGoalsSnapshot | undefined,
+  fields: Record<string, unknown>,
+): Record<string, unknown> {
+  return patchPayloadWithGoalsSnapshot(
+    existing?.goalsSnapshot,
+    goalsSnapshot,
+    fields,
+  );
+}
+
 /**
  * 문서가 없을 때만 date/createdAt을 생성하고, 있으면 update만 적용한다.
  * transaction이라 동시 저장에서도 createdAt이 덮어써지지 않는다.
- *
- * @param updates dot-path 허용 update 페이로드 (updatedAt은 내부에서 추가)
- * @param createFields 문서 신규 생성 시 함께 넣을 nested 필드
  */
 async function mutateDailyLog(
   uid: string,
   date: string,
   updates: Record<string, unknown>,
   createFields: Record<string, unknown>,
+  goalsSnapshot?: DailyGoalsSnapshot,
 ): Promise<void> {
   requireUid(uid);
   const db = getFirebaseDb();
@@ -100,21 +111,24 @@ async function mutateDailyLog(
   try {
     await runTransaction(db, async (tx) => {
       const snap = await tx.get(ref);
+      const existing = snap.exists() ? (snap.data() as DailyLog) : null;
 
       if (!snap.exists()) {
-        tx.set(ref, {
+        const payload = applyGoalsSnapshotToPayload(null, goalsSnapshot, {
           date,
           ...createFields,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
+        tx.set(ref, payload);
         return;
       }
 
-      tx.update(ref, {
+      const patch = applyGoalsSnapshotToPayload(existing, goalsSnapshot, {
         ...updates,
         updatedAt: serverTimestamp(),
       });
+      tx.update(ref, patch);
     });
   } catch {
     throw new Error(SAVE_ERROR);
@@ -138,6 +152,29 @@ export async function getDailyLog(
   }
 }
 
+/** 주어진 날짜들의 dailyLog를 한 번에 읽는다. 없는 날짜는 null. */
+export async function getDailyLogsByDates(
+  uid: string,
+  dates: string[],
+): Promise<Record<string, DailyLog | null>> {
+  requireUid(uid);
+
+  try {
+    const entries = await Promise.all(
+      dates.map(async (date) => {
+        const snap = await getDoc(dailyLogDocRef(uid, date));
+        if (!snap.exists()) {
+          return [date, null] as const;
+        }
+        return [date, snap.data() as DailyLog] as const;
+      }),
+    );
+    return Object.fromEntries(entries);
+  } catch {
+    throw new Error(LOAD_ERROR);
+  }
+}
+
 /**
  * 끼니 기록 저장. dot-path로 해당 슬롯 map 전체를 교체해
  * 다른 끼니·cardio·물·수면 필드를 건드리지 않는다.
@@ -148,6 +185,7 @@ export async function setMealLog(
   date: string,
   slot: MealSlotType,
   mealLog: MealLog | null,
+  goalsSnapshot?: DailyGoalsSnapshot,
 ): Promise<void> {
   if (mealLog === null) {
     requireUid(uid);
@@ -157,7 +195,7 @@ export async function setMealLog(
       await runTransaction(db, async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists()) {
-          return; // 문서가 없으면 이미 unlogged
+          return;
         }
         tx.update(ref, {
           [`meals.${slot}`]: deleteField(),
@@ -180,6 +218,7 @@ export async function setMealLog(
     date,
     { [`meals.${slot}`]: cleaned },
     { meals: { [slot]: cleaned } },
+    goalsSnapshot,
   );
 }
 
@@ -188,6 +227,7 @@ export async function setExtraFoods(
   uid: string,
   date: string,
   foods: FoodEntry[],
+  goalsSnapshot?: DailyGoalsSnapshot,
 ): Promise<void> {
   const cleaned = foods.map(cleanFoodEntry);
   await mutateDailyLog(
@@ -195,6 +235,7 @@ export async function setExtraFoods(
     date,
     { extraFoods: cleaned },
     { extraFoods: cleaned },
+    goalsSnapshot,
   );
 }
 
@@ -206,6 +247,7 @@ export async function addWaterMl(
   uid: string,
   date: string,
   deltaMl: number,
+  goalsSnapshot?: DailyGoalsSnapshot,
 ): Promise<number> {
   requireUid(uid);
   const db = getFirebaseDb();
@@ -214,23 +256,24 @@ export async function addWaterMl(
   try {
     return await runTransaction(db, async (tx) => {
       const snap = await tx.get(ref);
-      const current = snap.exists()
-        ? Number((snap.data() as DailyLog).waterMl ?? 0)
-        : 0;
+      const existing = snap.exists() ? (snap.data() as DailyLog) : null;
+      const current = existing ? Number(existing.waterMl ?? 0) : 0;
       const next = Math.min(WATER_MAX_ML, Math.max(0, current + deltaMl));
 
       if (!snap.exists()) {
-        tx.set(ref, {
+        const payload = applyGoalsSnapshotToPayload(null, goalsSnapshot, {
           date,
           waterMl: next,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
+        tx.set(ref, payload);
       } else {
-        tx.update(ref, {
+        const patch = applyGoalsSnapshotToPayload(existing, goalsSnapshot, {
           waterMl: next,
           updatedAt: serverTimestamp(),
         });
+        tx.update(ref, patch);
       }
       return next;
     });
@@ -244,46 +287,58 @@ export async function setWaterMl(
   uid: string,
   date: string,
   valueMl: number,
+  goalsSnapshot?: DailyGoalsSnapshot,
 ): Promise<void> {
   const clamped = Math.min(WATER_MAX_ML, Math.max(0, Math.round(valueMl)));
-  await mutateDailyLog(uid, date, { waterMl: clamped }, { waterMl: clamped });
+  await mutateDailyLog(
+    uid,
+    date,
+    { waterMl: clamped },
+    { waterMl: clamped },
+    goalsSnapshot,
+  );
 }
 
 export async function setSleepHours(
   uid: string,
   date: string,
   hours: number | null,
+  goalsSnapshot?: DailyGoalsSnapshot,
 ): Promise<void> {
   if (hours === null) {
-    await mutateDailyLog(uid, date, { sleepHours: deleteField() }, {});
+    await mutateDailyLog(uid, date, { sleepHours: deleteField() }, {}, goalsSnapshot);
     return;
   }
-  await mutateDailyLog(uid, date, { sleepHours: hours }, { sleepHours: hours });
+  await mutateDailyLog(uid, date, { sleepHours: hours }, { sleepHours: hours }, goalsSnapshot);
 }
 
 export async function setWeightKg(
   uid: string,
   date: string,
   weightKg: number | null,
+  goalsSnapshot?: DailyGoalsSnapshot,
 ): Promise<void> {
   if (weightKg === null) {
-    await mutateDailyLog(uid, date, { weightKg: deleteField() }, {});
+    await mutateDailyLog(uid, date, { weightKg: deleteField() }, {}, goalsSnapshot);
     return;
   }
-  await mutateDailyLog(uid, date, { weightKg }, { weightKg });
+  await mutateDailyLog(uid, date, { weightKg }, { weightKg }, goalsSnapshot);
 }
 
 /**
- * dailyLogs/{date}에 cardio 필드만 merge한다.
- * meal/water/sleep 등 다른 필드는 절대 건드리지 않는다(Phase 8 영역).
+ * dailyLogs/{date}에 cardio 필드만 저장한다.
+ * meal/water/sleep 등 다른 필드는 절대 건드리지 않는다.
  */
 export async function setCardioCompletion(
   uid: string,
   session: CardioSession,
   planWeekStartDate: string,
   completed: boolean,
+  goalsSnapshot?: DailyGoalsSnapshot,
 ): Promise<void> {
   requireUid(uid);
+  const db = getFirebaseDb();
+  const ref = dailyLogDocRef(uid, session.date);
 
   const cardio: Omit<DailyLogCardio, "completedAt"> & {
     completedAt: ReturnType<typeof serverTimestamp> | null;
@@ -297,14 +352,27 @@ export async function setCardioCompletion(
   };
 
   try {
-    await setDoc(
-      dailyLogDocRef(uid, session.date),
-      {
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      const existing = snap.exists() ? (snap.data() as DailyLog) : null;
+
+      if (!snap.exists()) {
+        const payload = applyGoalsSnapshotToPayload(null, goalsSnapshot, {
+          date: session.date,
+          cardio,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        tx.set(ref, payload);
+        return;
+      }
+
+      const patch = applyGoalsSnapshotToPayload(existing, goalsSnapshot, {
         cardio,
         updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
+      });
+      tx.update(ref, patch);
+    });
   } catch {
     throw new Error(SAVE_ERROR);
   }

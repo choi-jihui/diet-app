@@ -20,6 +20,7 @@ import type {
   DailyLogCardio,
   WeeklyCardioPlan,
 } from "@/types/cardio";
+import type { DailyGoalsSnapshot } from "@/types/daily-log";
 
 const GENERIC_ERROR = "문제가 생겼어요. 잠시 후 다시 시도해 주세요.";
 
@@ -154,14 +155,24 @@ export function useCardioPlan(
   );
 
   const toggleCompletion = useCallback(
-    async (session: CardioSession, completed: boolean) => {
+    async (
+      session: CardioSession,
+      completed: boolean,
+      goalsSnapshot?: DailyGoalsSnapshot,
+    ) => {
       if (!uid || !plan) {
         return;
       }
 
       setError(null);
       try {
-        await setCardioCompletion(uid, session, plan.weekStartDate, completed);
+        await setCardioCompletion(
+          uid,
+          session,
+          plan.weekStartDate,
+          completed,
+          goalsSnapshot,
+        );
         setCardioLogs((prev) => ({
           ...prev,
           [session.date]: {

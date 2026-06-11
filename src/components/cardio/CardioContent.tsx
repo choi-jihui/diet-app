@@ -17,6 +17,7 @@ import {
   getProfileSnapshot,
   subscribeProfile,
 } from "@/lib/storage/profile-storage";
+import { buildDailyGoalsSnapshot } from "@/types/daily-log";
 import type { CardioSession, CardioSettings } from "@/types/cardio";
 
 const REGENERATE_CONFIRM =
@@ -32,6 +33,10 @@ export function CardioContent() {
   const localWeek = useLocalWeek();
 
   const profile = profileData?.profile ?? null;
+  const goalsSnapshot =
+    profileData?.profile && profileData?.targets
+      ? buildDailyGoalsSnapshot(profileData.profile, profileData.targets)
+      : undefined;
   const cardioEnabled = Boolean(profile && profile.cardioIntensity !== "none");
   const weekStartDate =
     cardioEnabled && localWeek ? localWeek.weekStartDate : undefined;
@@ -228,7 +233,11 @@ export function CardioContent() {
                 type="checkbox"
                 checked={isCompleted(todaySession)}
                 onChange={(event) =>
-                  toggleCompletion(todaySession, event.target.checked)
+                  toggleCompletion(
+                    todaySession,
+                    event.target.checked,
+                    goalsSnapshot,
+                  )
                 }
                 className="h-5 w-5 rounded accent-gakk-mint"
               />
@@ -269,7 +278,11 @@ export function CardioContent() {
                     type="checkbox"
                     checked={completed}
                     onChange={(event) =>
-                      toggleCompletion(session, event.target.checked)
+                      toggleCompletion(
+                        session,
+                        event.target.checked,
+                        goalsSnapshot,
+                      )
                     }
                     aria-label={`${session.dayLabel}요일 완료`}
                     className="h-5 w-5 shrink-0 rounded accent-gakk-mint"
