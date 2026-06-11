@@ -22,6 +22,8 @@ export interface DailyLogSummaryResult {
   hasUnloggedMeals: boolean;
   /** 식사·추가 음식 기록이 1건이라도 있는지 (instant 연동 게이트) */
   hasAnyFoodRecord: boolean;
+  /** planned/custom/extraFoods 등 칼로리 입력 항목 존재 (skipped만·물만 등은 false) */
+  hasCalorieEntries: boolean;
   knownProteinTotalG: number;
   hasUnknownProteinEntries: boolean;
 }
@@ -37,6 +39,24 @@ function mealCalories(meal: MealLog): number {
     );
   }
   return 0;
+}
+
+/** 칼로리 평균·nearTarget 집계용. skipped만·물/수면/cardio만인 날은 false. */
+export function hasCalorieEntriesInLog(log: DailyLog | null): boolean {
+  if (!log) {
+    return false;
+  }
+
+  for (const meal of Object.values(log.meals ?? {})) {
+    if (!meal) {
+      continue;
+    }
+    if (meal.status === "planned" || meal.status === "custom") {
+      return true;
+    }
+  }
+
+  return (log.extraFoods ?? []).length > 0;
 }
 
 export function summarizeDailyLog({
@@ -93,6 +113,7 @@ export function summarizeDailyLog({
 
   const hasAnyFoodRecord =
     Object.keys(meals).length > 0 || extraFoods.length > 0;
+  const hasCalorieEntries = hasCalorieEntriesInLog(log);
 
   return {
     consumedCalories: consumed,
@@ -102,6 +123,7 @@ export function summarizeDailyLog({
     totalManagedMealCount: managedSlots.length,
     hasUnloggedMeals: loggedManagedCount < managedSlots.length,
     hasAnyFoodRecord,
+    hasCalorieEntries,
     knownProteinTotalG: Math.round(knownProtein),
     hasUnknownProteinEntries: hasUnknownProtein,
   };
