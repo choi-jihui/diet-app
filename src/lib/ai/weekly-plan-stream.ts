@@ -8,6 +8,7 @@ import {
   buildPantryIngredientKeys,
   validateFridgeOnlyDayPlan,
 } from "@/lib/ai/fridge-only";
+import { getGeminiModel, getWeeklyGeminiModel } from "@/lib/ai/model";
 import {
   buildSingleDayPlanPrompt,
   WEEKLY_PLAN_SYSTEM_PROMPT,
@@ -60,12 +61,18 @@ type DayFailureCode =
 
 function getDayMaxTokens(selectedSlotCount: number): number {
   if (selectedSlotCount <= 1) {
-    return 1800;
+    return 2200;
   }
   if (selectedSlotCount === 2) {
-    return 3000;
+    return 4000;
   }
-  return 4200;
+  return 5600;
+}
+
+function getModelCandidates(): string[] {
+  const weekly = getWeeklyGeminiModel().trim();
+  const common = getGeminiModel().trim();
+  return Array.from(new Set([weekly, common, "gemini-2.5-flash"].filter(Boolean)));
 }
 
 function mapGeminiErrorCode(code: GeminiError["code"]): DayFailureCode {
@@ -123,61 +130,83 @@ async function generateSingleDay(
     dayIndex,
   });
   const dayStartedAt = Date.now();
-  const dayMaxTokens = getDayMaxTokens(selectedSlots.length);
+  const dayBaseMaxTokens = getDayMaxTokens(selectedSlots.length);
+  const modelCandidates = getModelCandidates();
   let repairUnknownIngredients: string[] = [];
   let lastFailureCode: DayFailureCode = "unknown";
+  let lastGeminiCode: GeminiError["code"] | null = null;
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const prompt =
-      attempt === 0
-        ? basePrompt
-        : buildDayRepairPrompt({
-            basePrompt,
-            unknownIngredients: repairUnknownIngredients,
-            reason: lastFailureCode,
-          });
+  for (const model of modelCandidates) {
+    lastGeminiCode = null;
 
-    try {
-      const raw = await generateJsonContent({
-        system: WEEKLY_PLAN_SYSTEM_PROMPT,
-        user: prompt,
-        maxOutputTokens: dayMaxTokens,
-        timeoutMs: DAY_TIMEOUT_MS,
-        responseJsonSchema: WEEKLY_DAY_RESPONSE_JSON_SCHEMA,
-      });
-      const validated = schema.safeParse(raw);
-      if (validated.success) {
-        const fridgeValidation = validateFridgeOnlyDayPlan(
-          validated.data,
-          allowedFridgeKeys,
-          pantryKeys,
-        );
-        if (fridgeValidation.isValid) {
-          const elapsedMs = Date.now() - dayStartedAt;
-          console.info(
-            `[generate-weekly-plan] DAY_GENERATION_SUCCESS dayIndex=${dayIndex} elapsedMs=${elapsedMs}`,
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const prompt =
+        attempt === 0
+          ? basePrompt
+          : buildDayRepairPrompt({
+              basePrompt,
+              unknownIngredients: repairUnknownIngredients,
+              reason: lastFailureCode,
+            });
+
+      // Retry 시 토큰을 늘려 MAX_TOKENS를 완화한다.
+      const dayMaxTokens =
+        attempt === 0
+          ? dayBaseMaxTokens
+          : Math.min(8192, dayBaseMaxTokens + 1800);
+
+      try {
+        const raw = await generateJsonContent({
+          system: WEEKLY_PLAN_SYSTEM_PROMPT,
+          user: prompt,
+          model,
+          maxOutputTokens: dayMaxTokens,
+          timeoutMs: DAY_TIMEOUT_MS,
+          responseJsonSchema: WEEKLY_DAY_RESPONSE_JSON_SCHEMA,
+        });
+        const validated = schema.safeParse(raw);
+        if (validated.success) {
+          const fridgeValidation = validateFridgeOnlyDayPlan(
+            validated.data,
+            allowedFridgeKeys,
+            pantryKeys,
           );
-          return { day: validated.data, errorCode: "unknown" };
+          if (fridgeValidation.isValid) {
+            const elapsedMs = Date.now() - dayStartedAt;
+            console.info(
+              `[generate-weekly-plan] DAY_GENERATION_SUCCESS dayIndex=${dayIndex} elapsedMs=${elapsedMs} model=${model}`,
+            );
+            return { day: validated.data, errorCode: "unknown" };
+          }
+
+          lastFailureCode = "fridge_only_violation";
+          repairUnknownIngredients = fridgeValidation.unknownIngredients;
+          console.error(
+            `[generate-weekly-plan] DAY_GENERATION_FAILURE dayIndex=${dayIndex} errorCode=fridge_only_violation`,
+          );
+          continue;
         }
 
-        lastFailureCode = "fridge_only_violation";
-        repairUnknownIngredients = fridgeValidation.unknownIngredients;
+        lastFailureCode = "day_schema_invalid";
         console.error(
-          `[generate-weekly-plan] DAY_GENERATION_FAILURE dayIndex=${dayIndex} errorCode=fridge_only_violation`,
+          `[generate-weekly-plan] DAY_GENERATION_FAILURE dayIndex=${dayIndex} errorCode=day_schema_invalid`,
         );
-        continue;
+      } catch (caught) {
+        const code = caught instanceof GeminiError ? caught.code : "unknown";
+        if (caught instanceof GeminiError) {
+          lastGeminiCode = caught.code;
+        }
+        lastFailureCode =
+          caught instanceof GeminiError ? mapGeminiErrorCode(caught.code) : "unknown";
+        console.error(
+          `[generate-weekly-plan] DAY_GENERATION_FAILURE dayIndex=${dayIndex} errorCode=${code}`,
+        );
       }
-      lastFailureCode = "day_schema_invalid";
-      console.error(
-        `[generate-weekly-plan] DAY_GENERATION_FAILURE dayIndex=${dayIndex} errorCode=day_schema_invalid`,
-      );
-    } catch (caught) {
-      const code = caught instanceof GeminiError ? caught.code : "unknown";
-      lastFailureCode =
-        caught instanceof GeminiError ? mapGeminiErrorCode(caught.code) : "unknown";
-      console.error(
-        `[generate-weekly-plan] DAY_GENERATION_FAILURE dayIndex=${dayIndex} errorCode=${code}`,
-      );
+    }
+
+    // 400류/스키마 실패인 경우 동일 모델 재시도 효과가 낮아 다음 모델로 넘어간다.
+    if (lastGeminiCode === "http_error" || lastFailureCode === "day_schema_invalid") {
+      continue;
     }
   }
 
