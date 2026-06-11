@@ -22,8 +22,12 @@ export const maxDuration = 300;
 const GENERIC_ERROR =
   "식단을 만드는 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.";
 
-function errorResponse(status: number, message: string) {
-  return NextResponse.json({ error: message }, { status });
+function errorResponse(
+  status: number,
+  message: string,
+  code?: string,
+) {
+  return NextResponse.json({ error: message, code }, { status });
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -57,7 +61,7 @@ export async function POST(request: Request) {
 
   if (!isAdminConfigured()) {
     console.error("[generate-weekly-plan] admin_not_configured");
-    return errorResponse(500, GENERIC_ERROR);
+    return errorResponse(500, GENERIC_ERROR, "ADMIN_NOT_CONFIGURED");
   }
 
   const uid = await verifyIdToken(token);
@@ -98,9 +102,11 @@ export async function POST(request: Request) {
   let reservation: { allowed: boolean };
   try {
     reservation = await reserveWeeklyPlanGeneration(uid, dateKey);
-  } catch {
-    console.error("[generate-weekly-plan] usage_reserve_failed");
-    return errorResponse(500, GENERIC_ERROR);
+  } catch (caught) {
+    const reason =
+      caught instanceof Error ? caught.message : "usage_reserve_failed";
+    console.error("[generate-weekly-plan] usage_reserve_failed", reason);
+    return errorResponse(500, GENERIC_ERROR, "USAGE_RESERVE_FAILED");
   }
 
   if (!reservation.allowed) {
@@ -126,7 +132,7 @@ export async function POST(request: Request) {
       console.error("[generate-weekly-plan] save_failed", caught);
       console.error("[generate-weekly-plan] SERVER_SAVE_FAILURE");
       await releaseWeeklyPlanGeneration(uid, dateKey);
-      return errorResponse(500, GENERIC_ERROR);
+      return errorResponse(500, GENERIC_ERROR, "SAVE_FAILED");
     }
 
     console.info(

@@ -12,11 +12,32 @@ const MAX_WEEKLY_PLAN_GENERATIONS_PER_DAY = 2;
 
 let appInstance: App | null = null;
 
+function normalizeAdminPrivateKey(raw: string | undefined): string | null {
+  if (!raw) {
+    return null;
+  }
+
+  let key = raw.trim();
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1);
+  }
+
+  key = key.replace(/\\n/g, "\n").trim();
+  if (!key.includes("BEGIN PRIVATE KEY")) {
+    return null;
+  }
+
+  return key;
+}
+
 export function isAdminConfigured(): boolean {
   return Boolean(
-    process.env.FIREBASE_ADMIN_PROJECT_ID &&
-      process.env.FIREBASE_ADMIN_CLIENT_EMAIL &&
-      process.env.FIREBASE_ADMIN_PRIVATE_KEY,
+    process.env.FIREBASE_ADMIN_PROJECT_ID?.trim() &&
+      process.env.FIREBASE_ADMIN_CLIENT_EMAIL?.trim() &&
+      normalizeAdminPrivateKey(process.env.FIREBASE_ADMIN_PRIVATE_KEY),
   );
 }
 
@@ -30,20 +51,26 @@ function getAdminApp(): App {
     return appInstance;
   }
 
-  const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(
-    /\\n/g,
-    "\n",
+  const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID?.trim();
+  const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL?.trim();
+  const privateKey = normalizeAdminPrivateKey(
+    process.env.FIREBASE_ADMIN_PRIVATE_KEY,
   );
 
   if (!projectId || !clientEmail || !privateKey) {
     throw new Error("admin_not_configured");
   }
 
-  appInstance = initializeApp({
-    credential: cert({ projectId, clientEmail, privateKey }),
-  });
+  try {
+    appInstance = initializeApp({
+      credential: cert({ projectId, clientEmail, privateKey }),
+    });
+  } catch (caught) {
+    const message =
+      caught instanceof Error ? caught.message : "admin_init_failed";
+    console.error("[firebase-admin] init_failed", message.slice(0, 120));
+    throw new Error("admin_init_failed");
+  }
   return appInstance;
 }
 
